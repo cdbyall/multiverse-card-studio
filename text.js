@@ -30,6 +30,7 @@ function parseInline(text, terms) {
     '(?<![\\w])_(.+?)_(?![\\w])',
     '\\(h\\)',
     '\\[flip\\]|\\(flip\\)|\\(f\\)',
+    '\\{([a-z0-9_-]{1,24})\\}',
     '\\b(?:start|play|end|draw|power)\\s+phase\\b',
   ];
   if (t.length) parts.push('(?<![\\w])(?:' + t.join('|') + ')(?![\\w])');
@@ -44,6 +45,7 @@ function parseInline(text, terms) {
     else if (m[2] != null) runs.push({ s: m[2], i: 1 });
     else if (/^\(h\)$/i.test(k)) runs.push({ icon: 'H' });
     else if (/^(\[flip\]|\(flip\)|\(f\))$/i.test(k)) runs.push({ icon: 'flip' });
+    else if (m[3] != null) runs.push(TEXT_ICONS.has(m[3].toLowerCase()) || DRAWN_ICONS[m[3].toLowerCase()] ? { icon: 'custom', name: m[3].toLowerCase() } : { s: k });
     else if (/phase$/i.test(k)) runs.push({ s: k.toUpperCase().replace(/\s+/, ' '), b: 1 });
     else runs.push({ s: k, b: 1 });
     last = re.lastIndex;
@@ -112,7 +114,7 @@ function layoutText(ctx, blocks, width, size, o = {}) {
       if (r.icon) {
         const w = size * 1.05;
         if (line.w + w > maxW && line.items.length) pushLine();
-        line.items.push({ icon: r.icon, x: line.w, w });
+        line.items.push({ icon: r.icon, name: r.name, x: line.w, w });
         line.w += w;
         continue;
       }
@@ -122,8 +124,19 @@ function layoutText(ctx, blocks, width, size, o = {}) {
         if (!piece) continue;
         const sp = /^\s+$/.test(piece);
         if (sp && !line.items.length) continue;
-        const s = sp ? ' ' : piece;
-        const w = ctx.measureText(s).width;
+        let s = sp ? ' ' : piece;
+        let w = ctx.measureText(s).width;
+        // a single word wider than the line (a URL, a long name) is split
+        while (!sp && w > maxW && s.length > 1) {
+          let n = s.length - 1;
+          while (n > 1 && ctx.measureText(s.slice(0, n)).width > maxW - (line.items.length ? line.w : 0)) n--;
+          if (line.items.length && ctx.measureText(s.slice(0, n)).width > maxW - line.w) { pushLine(); continue; }
+          const head = s.slice(0, n);
+          line.items.push({ s: head, font, x: line.w, w: ctx.measureText(head).width, sp: false, lab: r.lab });
+          line.w += ctx.measureText(head).width;
+          pushLine();
+          s = s.slice(n); w = ctx.measureText(s).width;
+        }
         if (!sp && line.w + w > maxW && line.items.length) {
           // keep a word glued to what it touches (e.g. "PHASE" + ","): carry the whole word over
           let k = line.items.length;
@@ -195,6 +208,36 @@ function drawTextIcon(ctx, kind, x, baseY, size, color) {
   ctx.restore();
 }
 
+// Icons typed as {name}: pictures added under "Text icons" (TEXT_ICONS, set by the app),
+// or a few drawn ones. Unknown names print as {name} so typos show.
+const TEXT_ICONS = new Map();
+const DRAWN_ICONS = {
+  sun(ctx, cx, cy, r) { ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r * 0.62, cy + Math.sin(a) * r * 0.62); ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.stroke(); } },
+  moon(ctx, cx, cy, r) { ctx.beginPath(); ctx.arc(cx, cy, r * 0.85, 0, Math.PI * 2); ctx.arc(cx + r * 0.38, cy - r * 0.22, r * 0.7, 0, Math.PI * 2, true); ctx.fill('evenodd'); },
+  star(ctx, cx, cy, r) { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.42 : r; ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); },
+  ankh(ctx, cx, cy, r) { ctx.beginPath(); ctx.ellipse(cx, cy - r * 0.45, r * 0.32, r * 0.42, 0, 0, Math.PI * 2); ctx.stroke(); ctx.fillRect(cx - r * 0.75, cy - r * 0.02, r * 1.5, r * 0.2); ctx.fillRect(cx - r * 0.1, cy, r * 0.2, r); },
+  eye(ctx, cx, cy, r) { ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.quadraticCurveTo(cx, cy - r * 0.9, cx + r, cy); ctx.quadraticCurveTo(cx, cy + r * 0.9, cx - r, cy); ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2); ctx.fill(); },
+  skull(ctx, cx, cy, r) { ctx.beginPath(); ctx.arc(cx, cy - r * 0.15, r * 0.75, Math.PI, 0); ctx.lineTo(cx + r * 0.5, cy + r * 0.75); ctx.lineTo(cx - r * 0.5, cy + r * 0.75); ctx.closePath(); ctx.fill(); ctx.save(); ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.arc(cx - r * 0.3, cy, r * 0.2, 0, Math.PI * 2); ctx.arc(cx + r * 0.3, cy, r * 0.2, 0, Math.PI * 2); ctx.fill(); ctx.restore(); },
+  heart(ctx, cx, cy, r) { ctx.beginPath(); ctx.moveTo(cx, cy + r * 0.85); ctx.bezierCurveTo(cx - r * 1.3, cy - r * 0.1, cx - r * 0.5, cy - r * 1.1, cx, cy - r * 0.35); ctx.bezierCurveTo(cx + r * 0.5, cy - r * 1.1, cx + r * 1.3, cy - r * 0.1, cx, cy + r * 0.85); ctx.fill(); },
+  bolt(ctx, cx, cy, r) { ctx.beginPath(); ctx.moveTo(cx + r * 0.2, cy - r); ctx.lineTo(cx - r * 0.55, cy + r * 0.1); ctx.lineTo(cx - r * 0.05, cy + r * 0.1); ctx.lineTo(cx - r * 0.25, cy + r); ctx.lineTo(cx + r * 0.6, cy - r * 0.15); ctx.lineTo(cx + r * 0.08, cy - r * 0.15); ctx.closePath(); ctx.fill(); },
+};
+function drawCustomIcon(ctx, name, x, baseY, size, color) {
+  const cx = x + size * 0.52, cy = baseY - size * 0.36, r = size * 0.44;
+  const img = TEXT_ICONS.get(name);
+  ctx.save();
+  if (img && img.width) {
+    const s = Math.min(size * 0.95 / img.width, size * 0.95 / img.height);
+    ctx.drawImage(img, cx - img.width * s / 2, cy - img.height * s / 2, img.width * s, img.height * s);
+  } else if (DRAWN_ICONS[name]) {
+    ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = Math.max(1.5, size * 0.08); ctx.lineCap = 'round';
+    DRAWN_ICONS[name](ctx, cx, cy, r);
+  } else {
+    ctx.fillStyle = '#c8102e'; ctx.font = `700 ${size * 0.5}px ${TF.label}`; ctx.textBaseline = 'alphabetic';
+    ctx.fillText('{' + name + '}', x, baseY);
+  }
+  ctx.restore();
+}
+
 function drawPhaseLabel(ctx, label, x, y, size, o) {
   const fs = size * 1.18;
   ctx.save();
@@ -235,6 +278,7 @@ function drawLaid(ctx, lay, x, y, o = {}) {
     if (L.bullet) drawArrowBullet(ctx, x + size * 0.15, by - size * 0.34, size * 0.5, o.bulletColor || color);
     for (const it of L.items) {
       const ix = x + L.x0 + it.x + off;
+      if (it.icon === 'custom') { drawCustomIcon(ctx, it.name, ix, by, size, color); continue; }
       if (it.icon) { drawTextIcon(ctx, it.icon, ix, by, size, color); continue; }
       ctx.font = it.font;
       ctx.fillStyle = it.lab ? (o.labelColor || color) : color;

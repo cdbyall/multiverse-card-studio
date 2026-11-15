@@ -13,7 +13,7 @@ const el = (tag, props = {}, ...kids) => {
   return e;
 };
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-const slug = s => String(s || 'card').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'card';
+const slug = s => String(s || 'card').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/æ/gi, 'ae').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'card';
 
 // ---------- storage (IndexedDB) ----------
 const DB = {
@@ -73,10 +73,13 @@ function hist(card) {
   return h;
 }
 let histTimer = 0;
+let histPending = null;
 function pushHistory(now) {
   clearTimeout(histTimer);
+  const card = cur();
   const go = () => {
-    const c = cur(); if (!c) return;
+    histPending = null;
+    const c = card && S.proj && S.proj.cards.includes(card) ? card : null; if (!c) return;
     const h = hist(c);
     h.stack.length = h.i + 1;
     h.stack.push(cloneVal(c.data));
@@ -84,8 +87,9 @@ function pushHistory(now) {
     h.i = h.stack.length - 1;
     updateUndo();
   };
-  if (now) go(); else histTimer = setTimeout(go, 450);
+  if (now) go(); else { histPending = go; histTimer = setTimeout(go, 450); }
 }
+function flushHistory() { if (histPending) { clearTimeout(histTimer); histPending(); } }
 function undoRedo(dir) {
   clearTimeout(histTimer);
   const c = cur(); if (!c) return;
@@ -127,8 +131,17 @@ async function renderPreview() {
   lastR = await renderCard(c, preview, { bleed: S.bleed });
   if (S.guides) drawGuides(lastR);
   if (S.move) drawPartOutlines(lastR);
+  if (S.guides) drawOverflow(lastR);
+  $('#fitWarn').hidden = !lastR.overflow.some(r => !r.tiny);
+  $('#fitTiny').hidden = !(lastR.overflow.length && lastR.overflow.every(r => r.tiny));
   fitPreview();
   scheduleThumb(c);
+}
+function drawOverflow(R) {
+  const { ctx, bleed } = R;
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, bleed, bleed);
+  for (const r of R.overflow) { ctx.setLineDash([12, 6]); ctx.lineWidth = 4; ctx.strokeStyle = r.tiny ? 'rgba(255,170,0,.95)' : 'rgba(255,40,40,.95)'; ctx.strokeRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8); }
+  ctx.restore();
 }
 function drawGuides(R) {
   const { ctx, W, H, bleed } = R;
@@ -165,14 +178,15 @@ function buildList() {
   if (!S.proj) return;
   for (const c of S.proj.cards) {
     const cv = el('canvas');
-    const item = el('div', { class: 'ci' + (c.id === S.cardId ? ' on' : '') + (TEMPLATES[c.type].orient === 'h' ? ' h' : ''), 'data-id': c.id, onclick: () => selectCard(c.id) },
+    const item = el('div', { class: 'ci' + (c.id === S.cardId ? ' on' : '') + (TEMPLATES[c.type].orient === 'h' ? ' h' : TEMPLATES[c.type].orient === 's' ? ' s' : ''), 'data-id': c.id, onclick: () => selectCard(c.id) },
       cv, el('div', { class: 't' }, el('b', {}, cardLabel(c)), el('small', {}, typeLine(c))));
     list.append(item);
     renderCard(c, cv, { scale: 0.16, exporting: true });
   }
   updateDeckSum();
+  buildProjSel();
 }
-function typeLine(c) { const n = cardCopies(c); return TEMPLATES[c.type].name + (n > 1 ? '  ×' + n : ''); }
+function typeLine(c) { const n = cardCopies(c); return TEMPLATES[c.type].name + (n !== 1 && !ONE_COPY_TYPES.has(c.type) ? '  ×' + n : ''); }
 function refreshListItem(c) {
   const it = document.querySelector(`.ci[data-id="${c.id}"] .t b`);
   if (it) it.textContent = cardLabel(c);
@@ -181,7 +195,7 @@ function refreshListItem(c) {
   updateDeckSum();
 }
 // Card counts per deck (copies included). Hero decks are 40 cards.
-const DECK_SIZES = { heroDeck: ['Hero deck', 40], villainDeck: ['Villain deck', 0], envDeck: ['Environment deck', 0], eventFront: ['Events', 0], principle: ['Principles', 0] };
+const DECK_SIZES = { heroDeck: ['Hero deck', 40], villainDeck: ['Villain deck', 0], envDeck: ['Environment deck', 0], eventFront: ['Events', 0], criticalFront: ['Critical events', 0], principle: ['Principles', 0] };
 function updateDeckSum() {
   const box = $('#deckSum'); if (!box) return;
   box.innerHTML = '';
@@ -194,7 +208,8 @@ function updateDeckSum() {
   }
 }
 function selectCard(id) {
-  S.cardId = id;
+  flushHistory();
+  S.cardId = id; S.lastHit = null;
   document.querySelectorAll('.ci').forEach(e => e.classList.toggle('on', e.dataset.id === id));
   buildForm(); requestRender(); updateUndo();
   DB.setMeta('last', { proj: S.proj.id, card: id }).catch(() => {});
@@ -270,17 +285,36 @@ function fieldRow(c, f) {
     row.append(label, sel);
   } else if (f.type === 'image') {
     row.append(label, imageField(c, f));
+  } else if (f.type === 'button') {
+    row.append(el('button', { type: 'button', onclick: () => FORM_ACTIONS[f.action] && FORM_ACTIONS[f.action](c) }, f.label));
   }
   if (f.help) row.append(el('div', { class: 'help' }, f.help));
   return row;
 }
+
+// Divider back: list this project's deck cards of the same kind.
+const FORM_ACTIONS = {
+  fillList(c) {
+    const kind = c.data.kind || 'Hero';
+    const type = { Hero: 'heroDeck', Villain: 'villainDeck', Environment: 'envDeck' }[kind];
+    const cards = S.proj.cards.filter(x => x.type === type && cardCopies(x) > 0);
+    if (!cards.length) return toast(`This project has no ${kind.toLowerCase()} deck cards yet.`);
+    const code = String(c.data.name || 'X').normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'X';
+    const merged = new Map();
+    for (const x of cards) { const k = String(x.data.title || '').trim(); const m = merged.get(k); if (m) m.q += cardCopies(x); else merged.set(k, { q: cardCopies(x), k: x.data.keywords || '' }); }
+    let i = 0;
+    c.data.list = [...merged].sort((a, b) => a[0].localeCompare(b[0])).map(([n, v]) => `${v.q} | ${n} | ${v.k} | ${code}${String(++i).padStart(2, '0')}`).join('\n');
+    buildForm(); requestRender(); scheduleSave(); pushHistory(true);
+    toast(`Listed ${merged.size} cards.`);
+  },
+};
 
 function imageField(c, f) {
   const a = c.data[f.key] || {};
   const th = el('div', { class: 'th' + (a.src ? ' has' : ''), title: 'Choose image', onclick: () => chooseImage(f.key) }, '+');
   if (a.src) th.style.backgroundImage = `url("${a.src}")`;
   const zoom = el('input', {
-    type: 'range', min: 0.1, max: 6, step: 0.01, value: a.zoom || 1,
+    type: 'range', min: 0.1, max: 8, step: 0.01, value: a.zoom || 1,
     oninput: e => { c.data[f.key].zoom = +e.target.value; requestRender(); scheduleSave(); pushHistory(); },
   });
   const wrap = el('div', { class: 'imgF' }, th,
@@ -341,10 +375,14 @@ async function imageFromUrl(key) {
   if (!url) return;
   url = driveDirect(url.trim());
   try {
-    const r = await fetch(url, { mode: 'cors' });
+    let r;
+    try { r = await fetch(url, { mode: 'cors' }); }
+    catch (e) { return toast('Could not load that address. Either the site blocks loading its images here, or the address is wrong. Download the image and choose the file instead.'); }
+    if (!r.ok) return toast(`That address answered "${r.status}": the image isn't there (or isn't shared publicly).`);
     const b = await r.blob();
+    if (!/^image\//.test(b.type || '')) return toast('That address is a web page, not an image. Right-click the picture and copy the image address instead.');
     await setImageFromFile(key, b);
-  } catch (e) { toast('That site does not allow loading its images here. Download the image and choose the file instead.'); }
+  } catch (e) { toast('That file could not be read as an image.'); }
 }
 
 // Reads an image file into a data URL, shrinking very large images.
@@ -504,7 +542,8 @@ $('#cropCanvas').addEventListener('wheel', e => {
   $('#cropZoom').value = z; cropZoomTo(z);
 }, { passive: false });
 $('#cropAuto').onclick = async () => { await autoFrame(crop.key); $('#cropZoom').value = cur().data[crop.key].zoom; drawCrop(); requestRender(); scheduleSave(); };
-$('#cropDone').onclick = () => { $('#dlgCrop').close(); pushHistory(true); buildForm(); };
+$('#cropDone').onclick = () => $('#dlgCrop').close();
+$('#dlgCrop').addEventListener('close', () => { pushHistory(true); buildForm(); });
 
 // ---------- move parts mode ----------
 function drawPartOutlines(R) {
@@ -580,7 +619,8 @@ preview.addEventListener('pointermove', e => {
   const p = toCard(e);
   if (drag && drag.part) {
     const o = partData(drag.part);
-    o.x = Math.round(drag.ox + (p.x - drag.p.x)); o.y = Math.round(drag.oy + (p.y - drag.p.y));
+    const lim = Math.max(lastR.W, lastR.H) * 0.9;
+    o.x = Math.max(-lim, Math.min(lim, Math.round(drag.ox + (p.x - drag.p.x)))); o.y = Math.max(-lim, Math.min(lim, Math.round(drag.oy + (p.y - drag.p.y))));
     drag.moved = true; requestRender();
     return;
   }
@@ -643,7 +683,8 @@ document.addEventListener('paste', async e => {
   const item = [...(e.clipboardData || {}).items || []].find(i => i.type.startsWith('image/'));
   if (!item || !cur()) return;
   e.preventDefault();
-  await setImageFromFile(S.lastHit || firstImageKey(), item.getAsFile());
+  const c = cur(), ok = S.lastHit && TEMPLATES[c.type].fields.some(f => f.type === 'image' && f.key === S.lastHit && (!f.showIf || f.showIf(c.data)));
+  await setImageFromFile(ok ? S.lastHit : firstImageKey(), item.getAsFile());
 });
 function firstImageKey() {
   const c = cur();
@@ -660,8 +701,19 @@ function addCards(types) {
     made[1].data.title = made[0].type === 'teamVillain' ? 'Incapacitated' : 'Flipped Side'; made[1].data.setup = ''; made[1].data.hp = '';
     if (made[0].type === 'teamVillain') made[1].data.keywords = '';
   }
-  S.proj.cards.splice(at < 0 ? S.proj.cards.length : at + 1, 0, ...made);
+  if (made.length === 2) { const pid = uid(); made[0].pair = pid; made[1].pair = pid; }
+  let pos = at < 0 ? S.proj.cards.length : at + 1;
+  const sel = S.proj.cards[at];
+  if (sel && sel.pair) { const j = S.proj.cards.findIndex((c, k) => k !== at && c.pair === sel.pair); if (j >= 0) pos = Math.max(at, j) + 1; }
+  S.proj.cards.splice(pos, 0, ...made);
   scheduleSave(); buildList(); selectCard(made[0].id);
+}
+// Cards made as a pair keep a shared pair id. Older projects fall back to list order.
+function pairOf(cards, i) {
+  const c = cards[i];
+  if (c.pair) { const j = cards.findIndex((x, k) => k !== i && x.pair === c.pair); return j > i ? j : -1; }
+  const pt = TTS_PAIR[c.type], nx = cards[i + 1];
+  return pt && nx && nx.type === pt && !nx.pair ? i + 1 : -1;
 }
 $('#tbDup').onclick = () => {
   const c = cur(); if (!c) return;
@@ -834,6 +886,43 @@ $('#impGo').onclick = () => {
 };
 
 // ---------- print ----------
+// Lays cards out on pages at their real size (inches). Landscape cards are turned to portrait.
+// Each item: { w, h } in inches; returns pages of { item, x, y } from the printable area's top-left.
+function packPages(items, pw, ph, gap = 0) {
+  items = items.map((it, i) => [it, i]).sort((a, b) => (b[0].h - a[0].h) || (b[0].w - a[0].w) || (a[1] - b[1])).map(a => a[0]); // same sizes share rows
+  const pages = []; let page = [], x = 0, y = 0, rowH = 0, row = [];
+  const centerRow = () => { const used = row.length ? Math.max(...row.map(p => p.x + p.item.w)) : 0; const off = (pw - used) / 2; row.forEach(p => p.x += off); row = []; };
+  for (const it of items) {
+    if (x > 0 && x + it.w > pw + 1e-6) { centerRow(); x = 0; y += rowH + gap; rowH = 0; }
+    if (y > 0 && y + it.h > ph + 1e-6) { centerRow(); pages.push(page); page = []; x = 0; y = 0; rowH = 0; }
+    const p = { item: it, x, y }; page.push(p); row.push(p);
+    x += it.w + gap; rowH = Math.max(rowH, it.h);
+  }
+  centerRow(); if (page.length) pages.push(page);
+  return pages;
+}
+async function printImages(cards, copies, type) {
+  const out = [];
+  for (const c of cards) {
+    const cv = document.createElement('canvas');
+    await renderCard(c, cv, { exporting: true });
+    let im = cv, [w, h] = cardInches(c.type);
+    if (cv.width > cv.height) {
+      im = document.createElement('canvas'); im.width = cv.height; im.height = cv.width;
+      const g = im.getContext('2d'); g.translate(im.width, 0); g.rotate(Math.PI / 2); g.drawImage(cv, 0, 0);
+      [w, h] = [h, w];
+    }
+    let data;
+    try { data = type === 'blob' ? await new Promise(res => im.toBlob(res, 'image/jpeg', 0.92)) : im.toDataURL('image/jpeg', 0.95); }
+    catch (e) { toast('Skipped a card with a blocked image.'); continue; }
+    if (!data) continue;
+    if (type === 'blob') data = { w: im.width, h: im.height, bytes: new Uint8Array(await data.arrayBuffer()) };
+    const n = copies * cardCopies(c);
+    for (let k = 0; k < n; k++) out.push({ data, w, h });
+  }
+  return out;
+}
+const PAPER = { letter: [8.5, 11], a4: [8.27, 11.69] };
 $('#btnPrint').onclick = () => $('#dlgPrint').showModal();
 $('#prGo').onclick = async () => {
   const which = $('#prWhich').value, copies = Math.max(1, Math.min(20, +$('#prCopies').value || 1));
@@ -843,24 +932,14 @@ $('#prGo').onclick = async () => {
   toast('Preparing print sheets…');
   const area = $('#printArea');
   area.innerHTML = '';
-  const imgs = [];
-  for (const c of cards) {
-    const cv = document.createElement('canvas');
-    await renderCard(c, cv, { exporting: true });
-    let out = cv;
-    if (TEMPLATES[c.type].orient === 'h') { // rotate landscape cards to fit the portrait grid
-      out = document.createElement('canvas'); out.width = cv.height; out.height = cv.width;
-      const g = out.getContext('2d'); g.translate(out.width, 0); g.rotate(Math.PI / 2); g.drawImage(cv, 0, 0);
-    }
-    let url;
-    try { url = out.toDataURL('image/jpeg', 0.95); } catch (e) { toast('Skipped a card with a blocked image.'); continue; }
-    for (let k = 0; k < copies * cardCopies(c); k++) imgs.push(url);
-  }
+  const imgs = await printImages(cards, copies, 'url');
+  const [pw, ph] = PAPER[$('#prPaper').value === 'a4' ? 'a4' : 'letter'].map(v => v - 0.5);
   const style = el('style', { id: 'pageStyle' }, `@page { size: ${$('#prPaper').value === 'a4' ? 'A4' : 'letter'} portrait; margin: 0.25in; }`);
   area.append(style);
-  for (let i = 0; i < imgs.length; i += 9) {
+  for (const pg of packPages(imgs, pw, ph - 0.1)) {
     const page = el('div', { class: 'pp' + ($('#prLines').checked ? ' lines' : '') });
-    imgs.slice(i, i + 9).forEach(u => page.append(el('img', { src: u })));
+    page.style.width = pw + 'in'; page.style.height = (ph - 0.15) + 'in';
+    for (const p of pg) { const im = el('img', { src: p.item.data }); Object.assign(im.style, { left: p.x + 'in', top: (p.y + 0.1) + 'in', width: p.item.w + 'in', height: p.item.h + 'in' }); page.append(im); }
     area.append(page);
   }
   await Promise.race([
@@ -910,32 +989,36 @@ $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
 // spawns a bag with every deck. Character cards get their own back (Unique Backs);
 // deck cards share the project's deck back of the same kind.
 const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', teamVillain: 'teamVillain', eventFront: 'eventBack', criticalFront: 'villainChar' };
+const TTS_DECK_NAMES = { heroDeck: 'Hero deck', villainDeck: 'Villain deck', envDeck: 'Environment deck', principle: 'Principles deck' };
 const TTS_CHAR_NAMES = { Hero: 'Hero character cards', Villain: 'Villain character cards', Events: 'Event cards' };
 const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack', principle: 'principleBack' };
+const NO_TTS_TYPES = new Set(['dividerFront', 'dividerBack']);
 const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack', 'principleBack']);
 
 function ttsGroups(cards) {
   const chars = new Map(), decks = new Map();
+  const used = new Set();
   for (let i = 0; i < cards.length; i++) {
     const c = cards[i];
-    if (TTS_BACK_TYPES.has(c.type)) continue;
+    if (TTS_BACK_TYPES.has(c.type) || used.has(i) || NO_TTS_TYPES.has(c.type)) continue;
     const pt = TTS_PAIR[c.type];
     if (pt) {
-      const nx = cards[i + 1];
+      const j = pairOf(cards, i);
       let back = null;
-      if (nx && nx.type === pt) { back = nx; i++; }
+      if (j >= 0) { back = cards[j]; used.add(j); }
       const o = TEMPLATES[c.type].orient, grp = TEMPLATES[c.type].group, gk = grp + '|' + o;
       if (!chars.has(gk)) chars.set(gk, { name: grp === 'Villain' && o === 'v' ? 'Team villain cards' : TTS_CHAR_NAMES[grp] || grp + ' cards', faces: [], backs: [], unique: true, orient: o });
       chars.get(gk).faces.push(c); chars.get(gk).backs.push(back);
       continue;
     }
+    if (!cardCopies(c)) continue;
     if (!decks.has(c.type)) decks.set(c.type, []);
     decks.get(c.type).push(c);
   }
   const groups = [...chars.values()];
   for (const [t, list] of decks) {
     const bt = TTS_BACK_FOR[t];
-    groups.push({ name: TEMPLATES[t].name.replace(/ card$/i, '') + (/s$/.test(TEMPLATES[t].name) ? '' : 's'), faces: list, back: bt ? cards.find(c => c.type === bt) || null : null, unique: false, orient: TEMPLATES[t].orient });
+    groups.push({ name: TTS_DECK_NAMES[t] || TEMPLATES[t].name, faces: list, back: bt ? cards.find(c => c.type === bt) || null : null, unique: false, orient: TEMPLATES[t].orient });
   }
   // TTS holds at most 69 cards per sheet (the 70th slot is the hidden face)
   const out = [];
@@ -995,7 +1078,9 @@ async function buildTTS(proj, folderPath) {
   if (!groups.length) throw new Error('No playable cards in this project yet.');
   for (const g of groups) {
     deckKey++;
-    const [W, H] = g.orient === 'h' ? [1050, 750] : [750, 1050];
+    const first = g.faces.find(Boolean) || (g.backs || []).find(Boolean);
+    const [W, H] = first ? cardSize(first.type) : g.orient === 'h' ? [1050, 750] : [750, 1050];
+    const [inW, inH] = first ? cardInches(first.type) : [2.5, 3.5];
     const tag = String(deckKey).padStart(2, '0') + '-' + slug(g.name);
     const faces = await ttsSheet(g.faces, W, H);
     const faceFile = tag + '-faces.png';
@@ -1014,7 +1099,9 @@ async function buildTTS(proj, folderPath) {
     }
     const cd = { FaceURL: base + faceFile, BackURL: base + backFile, NumWidth: faces.cols, NumHeight: faces.rows, BackIsHidden: true, UniqueBack: g.unique, Type: 0 };
     const side = g.orient === 'h';
-    const tf = x => ({ posX: x, posY: 1, posZ: 0, rotX: 0, rotY: 180, rotZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 });
+    // TTS cards are 2.5 x 3.5 at scale 1; bigger cards are scaled to their real size and shape
+    const [sx, sz] = side ? [Math.max(inW, inH) / 3.5, Math.min(inW, inH) / 2.5] : [inW / 2.5, inH / 3.5];
+    const tf = x => ({ posX: x, posY: 1, posZ: 0, rotX: 0, rotY: 180, rotZ: 0, scaleX: +sx.toFixed(3), scaleY: 1, scaleZ: +sz.toFixed(3) });
     // copies share one picture on the sheet (same CardID)
     const cardsJ = g.faces.flatMap((c, i) => Array.from({ length: cardCopies(c) }, () => ({
       Name: 'Card', Transform: tf(0), Nickname: cardLabel(c), Description: TEMPLATES[c.type].name,
@@ -1136,6 +1223,7 @@ async function shareFiles(proj) {
   for (const c of p.cards) for (const v of Object.values(c.data || {})) {
     if (v && typeof v === 'object' && 'src' in v) { await take(v); for (const alt of v.alts || []) await take(alt); }
   }
+  for (const ic of p.icons || []) await take(ic);
   files['project.mcs.json'] = { content: JSON.stringify({ app: 'multiverse-card-studio', version: 1, project: p }) };
   return files;
 }
@@ -1197,6 +1285,7 @@ async function openSharedLink() {
     for (const c of p.cards) for (const v of Object.values(c.data || {})) {
       if (v && typeof v === 'object' && 'src' in v) { await fill(v); for (const alt of v.alts || []) await fill(alt); }
     }
+    for (const ic of p.icons || []) await fill(ic);
     p.id = uid(); p.name = p.name + (S.projects.some(q => q.name === p.name) ? ' (shared)' : '');
     p.cards = p.cards.filter(c => TEMPLATES[c.type]).map(c => ({ ...c, id: uid() }));
     S.projects.push(p); await DB.put(p); await openProject(p.id); toast('Shared project added.');
@@ -1206,36 +1295,20 @@ window.addEventListener('hashchange', openSharedLink);
 
 // ---------- PDF ----------
 async function buildPdf(cards, copies, paper, lines) {
-  const [pw, ph] = paper === 'a4' ? [595.28, 841.89] : [612, 792];
-  const cw = 180, ch = 252; // 2.5 x 3.5 in
-  const x0 = (pw - 3 * cw) / 2, y0 = Math.max(18, (ph - 3 * ch) / 2);
-  const list = [];
-  for (const c of cards) {
-    const cv = document.createElement('canvas');
-    await renderCard(c, cv, { exporting: true });
-    let out = cv;
-    if (TEMPLATES[c.type].orient === 'h') {
-      out = document.createElement('canvas'); out.width = cv.height; out.height = cv.width;
-      const g = out.getContext('2d'); g.translate(out.width, 0); g.rotate(Math.PI / 2); g.drawImage(cv, 0, 0);
-    }
-    const blob = await new Promise(res => out.toBlob(res, 'image/jpeg', 0.92));
-    if (!blob) continue;
-    const img = { w: out.width, h: out.height, bytes: new Uint8Array(await blob.arrayBuffer()) };
-    const n = copies * cardCopies(c);
-    for (let k = 0; k < n; k++) list.push(img);
-  }
-  const pages = [];
-  for (let i = 0; i < list.length; i += 9) {
-    const items = list.slice(i, i + 9).map((img, j) => ({ img, x: x0 + (j % 3) * cw, y: y0 + Math.floor(j / 3) * ch, w: cw, h: ch }));
+  const [pwIn, phIn] = PAPER[paper === 'a4' ? 'a4' : 'letter'];
+  const list = await printImages(cards, copies, 'blob');
+  const m = 0.25, pages = [];
+  for (const pg of packPages(list, pwIn - 2 * m, phIn - 2 * m)) {
+    const bottom = Math.max(...pg.map(p => p.y + p.item.h));
+    const oy = m + (phIn - 2 * m - bottom) / 2;
+    const items = pg.map(p => ({ img: p.item.data, x: (m + p.x) * 72, y: (oy + p.y) * 72, w: p.item.w * 72, h: p.item.h * 72 }));
     const ls = [];
-    if (lines) {
-      const rows = Math.ceil(items.length / 3), cols = Math.min(3, items.length);
-      for (let r = 0; r <= rows; r++) ls.push([x0 - 12, y0 + r * ch, x0 + cols * cw + 12, y0 + r * ch]);
-      for (let k = 0; k <= cols; k++) ls.push([x0 + k * cw, y0 - 12, x0 + k * cw, y0 + rows * ch + 12]);
+    if (lines) for (const it of items) {
+      ls.push([it.x, it.y, it.x + it.w, it.y], [it.x, it.y + it.h, it.x + it.w, it.y + it.h], [it.x, it.y, it.x, it.y + it.h], [it.x + it.w, it.y, it.x + it.w, it.y + it.h]);
     }
     pages.push({ items, lines: ls });
   }
-  return makePdf(pages, pw, ph);
+  return makePdf(pages, pwIn * 72, phIn * 72);
 }
 $('#prPdf').onclick = async () => {
   const which = $('#prWhich').value, copies = Math.max(1, Math.min(20, +$('#prCopies').value || 1));
@@ -1245,6 +1318,42 @@ $('#prPdf').onclick = async () => {
   toast('Building the PDF…');
   try { download(await buildPdf(cards, copies, $('#prPaper').value, $('#prLines').checked), slug(S.proj.name) + '-print.pdf'); }
   catch (e) { console.error(e); toast('PDF failed: an image came from a site that does not allow it.'); }
+};
+
+// ---------- text icons ({name} in game text) ----------
+const iconName = s => String(s || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 24);
+function syncIcons() {
+  TEXT_ICONS.clear();
+  for (const ic of (S.proj && S.proj.icons) || []) {
+    if (!ic.name || !ic.src) continue;
+    loadImg(ic.src).then(img => { if (img && S.proj && (S.proj.icons || []).includes(ic)) { TEXT_ICONS.set(ic.name, img); requestRender(); buildList(); } });
+  }
+}
+function buildIcons() {
+  const box = $('#icList'); box.innerHTML = '';
+  const list = S.proj.icons || [];
+  if (!list.length) box.append(el('p', { class: 'muted' }, 'No pictures yet.'));
+  list.forEach((ic, i) => {
+    const name = el('input', { type: 'text', value: ic.name, spellcheck: 'false' });
+    name.onchange = () => {
+      const n = iconName(name.value);
+      if (!n) { name.value = ic.name; return toast('Use letters, numbers, - or _.'); }
+      if (list.some((o, j) => j !== i && o.name === n)) { name.value = ic.name; return toast('Another icon already has that name.'); }
+      ic.name = n; name.value = n; syncIcons(); scheduleSave();
+    };
+    box.append(el('div', { class: 'icRow' }, el('img', { src: ic.src, alt: '' }), el('code', {}, '{'), name, el('code', {}, '}'),
+      el('button', { type: 'button', class: 'ghost', onclick: () => { list.splice(i, 1); syncIcons(); buildIcons(); scheduleSave(); } }, 'Remove')));
+  });
+}
+$('#btnIcons').onclick = () => { $('#icBuilt').textContent = Object.keys(DRAWN_ICONS).map(n => '{' + n + '}').join(' '); buildIcons(); $('#dlgIcons').showModal(); };
+$('#icAdd').onclick = () => $('#icFile').click();
+$('#icFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const list = S.proj.icons || (S.proj.icons = []);
+  let base = iconName(f.name.replace(/\.[^.]+$/, '')) || 'icon', n = base, k = 1;
+  while (list.some(o => o.name === n)) n = base + (++k);
+  list.push({ name: n, src: await fileToDataUrl(f, 256) });
+  syncIcons(); buildIcons(); scheduleSave();
 };
 
 // ---------- projects ----------
@@ -1257,6 +1366,7 @@ function buildProjSel() {
 async function openProject(id, cardId) {
   await saveNow();
   S.proj = S.projects.find(p => p.id === id) || S.projects[0];
+  syncIcons();
   S.cardId = (cardId && S.proj.cards.some(c => c.id === cardId)) ? cardId : (S.proj.cards[0] || {}).id || null;
   buildProjSel(); buildList(); buildForm(); requestRender(); updateUndo();
   DB.setMeta('last', { proj: S.proj.id, card: S.cardId }).catch(() => {});

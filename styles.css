@@ -49,6 +49,7 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
 .ci.on { background: #2a2414; border-color: #6b5410; }
 .ci canvas { width: 46px; height: auto; border-radius: 3px; flex: none; background: #000; }
 .ci.h canvas { width: 62px; }
+.ci.s canvas { width: 54px; }
 .ci .t { min-width: 0; }
 .ci .t b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .ci .t small { color: var(--muted); font-size: 11px; }
@@ -64,6 +65,8 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
 #preview.grab { cursor: grab; } #preview.grabbing { cursor: grabbing; } #preview.pick { cursor: pointer; }
 .canvasWrap.drop { outline: 3px dashed var(--accent); outline-offset: -10px; }
 .empty { position: absolute; color: var(--muted); font-size: 16px; }
+.warn { color: #ff8a8a; font-size: 12px; text-align: center; padding: 0 10px 8px; }
+.warn.soft { color: #ffc266; }
 .hint { color: var(--muted); font-size: 12px; text-align: center; padding: 6px 10px 10px; }
 
 .editor { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
@@ -92,6 +95,10 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
 
 .dlg { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(980px, 94vw); max-height: 88vh; }
 .dlg.small { width: min(420px, 94vw); }
+.icList { margin: 6px 14px; display: grid; gap: 6px; }
+.icRow { display: flex; align-items: center; gap: 8px; }
+.icRow img { width: 36px; height: 36px; object-fit: contain; background: #fff; border-radius: 6px; }
+.icRow input { flex: 1; }
 .dlg::backdrop { background: rgba(0,0,0,.6); }
 .dlgHead { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 16px; position: sticky; top: 0; background: var(--panel); }
 .dlg > p, .dlg > label, .dlg > .row { margin: 10px 14px; display: block; }
@@ -115,8 +122,8 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
   body > *:not(#printArea) { display: none !important; }
   html, body { background: #fff; height: auto; }
   #printArea { display: block; }
-  .pp { page-break-after: always; display: grid; grid-template-columns: repeat(3, 2.5in); grid-auto-rows: 3.5in; justify-content: center; align-content: start; padding-top: .1in; }
-  .pp img { width: 2.5in; height: 3.5in; display: block; }
+  .pp { page-break-after: always; position: relative; overflow: hidden; }
+  .pp img { position: absolute; display: block; }
   .pp.lines img { outline: .5pt solid #999; outline-offset: -.25pt; }
 }
 

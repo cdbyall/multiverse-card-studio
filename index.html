@@ -30,6 +30,7 @@
     <button id="btnZip">All PNGs (.zip)</button>
     <button id="btnPrint">Print / PDF</button>
     <button id="btnShare">Share link</button>
+    <button id="btnIcons" title="Pictures you can put inside game text as {name}">Text icons</button>
     <button id="btnTTS" class="accent">Tabletop Simulator</button>
     <button id="btnGallery" class="ghost" title="Opens the official card gallery on Unity's Workshop">Official cards ↗</button>
     <button id="btnHelp" class="ghost">Help</button>
@@ -67,6 +68,8 @@
       <div class="empty" id="emptyMsg" hidden>No cards yet. Press <b>+ New card</b>.</div>
     </div>
     <div class="hint">Drag art to move it, scroll to zoom, double-click to replace. Drop or paste an image onto any art area.</div>
+    <div class="warn" id="fitWarn" hidden>Some text doesn't fit (red outline). Shorten it, lower Text size, or make the box bigger.</div>
+    <div class="warn soft" id="fitTiny" hidden>Some text had to shrink below a readable print size (orange outline).</div>
   </section>
 
   <aside class="editor">
@@ -120,6 +123,14 @@
   <p class="muted">Each link is a new snapshot. Make a new link after you change the cards.</p></div>
 </dialog>
 
+<dialog id="dlgIcons" class="dlg small">
+  <div class="dlgHead"><b>Text icons</b><button class="ghost" data-close>✕</button></div>
+  <p>Type <code>{name}</code> in any game text to put a small picture in the line, like the Ennead's god symbols or a deck's own icon. Icons belong to this project and travel with its project file and share links.</p>
+  <div id="icList" class="icList"></div>
+  <div class="row"><input type="file" id="icFile" accept="image/*" hidden><button id="icAdd" class="accent">Add a picture…</button></div>
+  <p class="muted">Ready-made: <span id="icBuilt"></span></p>
+</dialog>
+
 <dialog id="dlgHelp" class="dlg">
   <div class="dlgHead"><b>How to write game text</b><button class="ghost" data-close>✕</button></div>
   <div class="help">
@@ -131,6 +142,7 @@
       <tr><td><code>&gt; text</code> or <code>- text</code></td><td>Arrow bullet</td></tr>
       <tr><td><code>(H)</code></td><td>H (number of heroes) icon</td></tr>
       <tr><td><code>[flip]</code> <code>(F)</code></td><td>Flip icon</td></tr>
+      <tr><td><code>{sun}</code> <code>{ankh}</code> <code>{myicon}</code></td><td>A small icon in the line: ready-made ones, or your own pictures from <b>Text icons</b></td></tr>
       <tr><td><code>**words**</code> / <code>_words_</code></td><td>Bold / italic</td></tr>
       <tr><td>“Extra bolded terms” field</td><td>Bolds those words everywhere</td></tr>
     </table>
@@ -138,6 +150,7 @@
     <p><b>First Appearance cards</b> show the hero's debut comic in a graded case. Build the cover right here (masthead, issue, price, blurb, speech bubble, era, age and wear) or upload a finished cover. Use “First Appearance (front + back)” to make both sides at once; the back is the “Notable Defeat” cover with the incapacitated options.</p>
     <p><b>Events</b>: “Event (front + back)” makes the event card and its Collection back (featured cover, issue list, two rewards). “Critical Event (front) + Villain character” makes the critical event front and the replacement villain card on its back. In Tabletop Simulator the landscape back is turned to fit the card.</p>
     <p><b>Copies</b>: set “Copies in the deck” (under Print and decks) on any deck card. The list shows ×2, ×3, and the top of the list counts each deck (a hero deck is 40 cards). Print, PDF and Tabletop Simulator all use it.</p>
+    <p><b>Dividers</b> are the square deck dividers from the Definitive Edition box: the front shows the deck name and art, the back lists the cards. On the back press <b>Fill from this project</b> to list your deck cards with their copies.</p>
     <p><b>Art versions</b>: press <b>+ Version</b> under a picture to keep it, then add a different picture. Click a version to switch to it.</p>
     <p><b>Move parts</b>: tick it above the card to drag the title, text box, logo and the rest; scroll to resize; double-click a part to put it back; Reset layout puts them all back.</p>
     <p><b>Art</b> is framed for you when you add it (it finds the subject and fits it to the spot). Use <b>Crop…</b> for exact control, or drag and scroll on the card.</p>
