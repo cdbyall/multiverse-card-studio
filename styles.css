@@ -101,8 +101,10 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
 .pick h3 { font-family: Bangers, sans-serif; font-weight: 400; font-size: 22px; letter-spacing: .5px; margin: 12px 0 8px; }
 .pickRow { display: flex; flex-wrap: wrap; gap: 10px; }
 .pickItem { width: 130px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px; text-align: center; position: relative; }
-.pickItem canvas { height: 120px; width: auto; border-radius: 4px; }
-.pickItem .pair { display: flex; gap: 3px; } .pickItem .pair canvas { height: 100px; }
+.pickItem.wide { width: 230px; }
+.pickItem .pv { width: 100%; height: 120px; display: flex; gap: 4px; align-items: center; justify-content: center; }
+.pickItem .pv canvas { max-width: 100%; max-height: 120px; width: auto; height: auto; min-width: 0; border-radius: 4px; }
+.pickItem .pv.pair canvas { max-width: calc(50% - 2px); }
 .pickItem span { font-size: 12px; line-height: 1.2; }
 .pickItem i { position: absolute; top: 4px; right: 4px; background: var(--red); color: #fff; font-style: normal; font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 8px; }
 .help { padding: 6px 16px 16px; } .help table { border-collapse: collapse; width: 100%; } .help td { border-bottom: 1px solid var(--line); padding: 6px; vertical-align: top; }

@@ -883,17 +883,18 @@ async function buildPicker() {
     for (const it of items) {
       const types = Array.isArray(it) ? it : [it];
       const label = Array.isArray(it)
-        ? (it[0] === 'villainChar' ? 'Villain character (front + flipped)' : TEMPLATES[it[0]].name.replace(/ \(front\)| card$/i, '') + ' (front + back)')
+        ? (it[0] === it[1] ? TEMPLATES[it[0]].name.replace(/ card$/i, '') + ' (front + flipped)' : TEMPLATES[it[0]].name.replace(/ \(front\)| card$/i, '') + ' (front + back)')
         : TEMPLATES[it].name;
       const cvs = types.map(() => el('canvas'));
-      const btn = el('button', { type: 'button', class: 'pickItem', onclick: () => { $('#dlgNew').close(); addCards(types); } },
-        types.length > 1 ? el('div', { class: 'pair' }, cvs) : cvs[0],
+      const wide = types.length > 1 || TEMPLATES[types[0]].orient === 'h';
+      const btn = el('button', { type: 'button', class: 'pickItem' + (wide ? ' wide' : ''), onclick: () => { $('#dlgNew').close(); addCards(types); } },
+        el('div', { class: 'pv' + (types.length > 1 ? ' pair' : '') }, cvs),
         el('span', {}, label),
         TEMPLATES[types[0]].badge ? el('i', {}, TEMPLATES[types[0]].badge) : null);
       row.append(btn);
       types.forEach((t, i) => {
         const demo = newCard(t);
-        if (types.length === 2 && t === 'villainChar' && i === 1) demo.data.title = 'Flipped Side';
+        if (types.length === 2 && types[0] === types[1] && i === 1) demo.data.title = 'Flipped Side';
         renderCard(demo, cvs[i], { scale: 0.17, exporting: true });
       });
     }
