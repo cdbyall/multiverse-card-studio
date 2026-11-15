@@ -251,6 +251,25 @@ const DRAWN_ICONS = {
   heart(ctx, cx, cy, r) { ctx.beginPath(); ctx.moveTo(cx, cy + r * 0.85); ctx.bezierCurveTo(cx - r * 1.3, cy - r * 0.1, cx - r * 0.5, cy - r * 1.1, cx, cy - r * 0.35); ctx.bezierCurveTo(cx + r * 0.5, cy - r * 1.1, cx + r * 1.3, cy - r * 0.1, cx, cy + r * 0.85); ctx.fill(); },
   bolt(ctx, cx, cy, r) { ctx.beginPath(); ctx.moveTo(cx + r * 0.2, cy - r); ctx.lineTo(cx - r * 0.55, cy + r * 0.1); ctx.lineTo(cx - r * 0.05, cy + r * 0.1); ctx.lineTo(cx - r * 0.25, cy + r); ctx.lineTo(cx + r * 0.6, cy - r * 0.15); ctx.lineTo(cx + r * 0.08, cy - r * 0.15); ctx.closePath(); ctx.fill(); },
 };
+// Ready-made picture icons (icons/*.png, black on clear), tinted to the text color when drawn.
+const ICON_FILES = { aten: 'icons/aten.png', sun: 'icons/aten.png', hand: 'icons/hand.png', ankh: 'icons/ankh.png' };
+const ICON_IMGS = new Map(), ICON_TINTS = new Map();
+for (const [n, src] of Object.entries(ICON_FILES)) {
+  const im = new Image();
+  im.onload = () => { ICON_IMGS.set(n, im); if (typeof requestRender === 'function') requestRender(); };
+  im.src = src;
+}
+function tintedIcon(name, color) {
+  const k = name + '|' + color;
+  let c = ICON_TINTS.get(k);
+  if (!c) {
+    const im = ICON_IMGS.get(name);
+    c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
+    const g = c.getContext('2d'); g.drawImage(im, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+    ICON_TINTS.set(k, c);
+  }
+  return c;
+}
 function drawCustomIcon(ctx, name, x, baseY, size, color) {
   const cx = x + size * 0.52, cy = baseY - size * 0.36, r = size * 0.44;
   const img = TEXT_ICONS.get(name);
@@ -258,6 +277,9 @@ function drawCustomIcon(ctx, name, x, baseY, size, color) {
   if (img && img.width) {
     const s = Math.min(size * 0.95 / img.width, size * 0.95 / img.height);
     ctx.drawImage(img, cx - img.width * s / 2, cy - img.height * s / 2, img.width * s, img.height * s);
+  } else if (ICON_IMGS.has(name)) {
+    const t = tintedIcon(name, color), s = size * 0.92 / t.height;
+    ctx.drawImage(t, cx - t.width * s / 2, cy - t.height * s / 2 - size * 0.04, t.width * s, t.height * s);
   } else if (DRAWN_ICONS[name]) {
     ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = Math.max(1.5, size * 0.08); ctx.lineCap = 'round';
     DRAWN_ICONS[name](ctx, cx, cy, r);
