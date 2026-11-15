@@ -3,7 +3,14 @@
 An unofficial fan card maker for *Sentinels of the Multiverse: Definitive Edition*, made as a "way better"
 version of Unity's Workshop. Everything runs in your browser; nothing is uploaded anywhere.
 
-## Start it
+## Use it online
+**https://cdbyall.github.io/multiverse-card-studio/**
+
+## Tabletop Simulator
+Press "Tabletop Simulator", type your Saved Objects folder, and save. In the game: Objects > Saved Objects.
+For multiplayer: Modding > Cloud Manager > Upload All Loaded Files (see the README it makes).
+
+## Start it on this PC instead
 Double-click **Start Card Studio.cmd**. It serves this folder on http://localhost:8848 and opens it.
 Leave the black window open while you work. In Chrome or Edge, press **Install app** (top right)
 to get a desktop/Start-menu app that also works offline.
