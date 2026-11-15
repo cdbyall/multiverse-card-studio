@@ -646,14 +646,15 @@ function deckFrontV(R) {
   drawArt(R, 'art', art, { phColor: shade(fc, 0.15), fy: 0.56 });
   strokeShape(ctx, art, 6);
   const hasHp = d.hp !== '' && d.hp != null;
-  banner(ctx, d.title, { x: 54, y: 44, w: hasHp ? 540 : 642, h: 78 }, { color: d.titleColor });
-  if (hasHp) hpStar(ctx, 652, 86, 64, d.hp);
+  const tr = { x: 54, y: 44, w: hasHp ? 540 : 642, h: 78 };
+  part(R, 'Title', tr, () => banner(ctx, d.title, tr, { color: d.titleColor }));
+  if (hasHp) part(R, 'HP', { x: 588, y: 22, w: 128, h: 128 }, () => hpStar(ctx, 652, 86, 64, d.hp));
   const tb = { x: 48, y: 598, w: 654, h: hasQ ? 296 : 412 };
-  box(ctx, tb, { dots: rgba(fc, 0.16) });
-  gameText(R, d.gameText, { x: tb.x + 24, y: tb.y + 36, w: tb.w - 48, h: tb.h - 52 }, { base: 31 });
-  tag(ctx, d.keywords, 32, 560, 54, { maxW: 520 });
-  if (d.suddenly) suddenly(ctx, W - 64, 566);
-  if (hasQ) quoteBubble(ctx, d.quote, d.attribution, { x: 40, y: 910, w: 670, h: 116 }, shade(fc, -0.25), (d.quoteSize || 100) / 100);
+  part(R, 'Text box', tb, () => { box(ctx, tb, { dots: rgba(fc, 0.16) }); gameText(R, d.gameText, { x: tb.x + 24, y: tb.y + 36, w: tb.w - 48, h: tb.h - 52 }, { base: 31 }); });
+  part(R, 'Keywords', { x: 32, y: 560, w: 300, h: 54 }, () => { const w = tag(ctx, d.keywords, 32, 560, 54, { maxW: 520 }); return w ? { x: 32, y: 560, w, h: 54 } : null; });
+  if (d.suddenly) part(R, 'SUDDENLY!', { x: W - 330, y: 556, w: 270, h: 70 }, () => suddenly(ctx, W - 64, 566));
+  const qr = { x: 40, y: 910, w: 670, h: 116 };
+  if (hasQ) part(R, 'Quote', qr, () => quoteBubble(ctx, d.quote, d.attribution, qr, shade(fc, -0.25), (d.quoteSize || 100) / 100));
   artistCredit(R, d.artist, W, H);
 }
 
@@ -678,6 +679,46 @@ function backPanels(R, panels, tint, filter) {
     pathShape(ctx, poly); ctx.stroke(); ctx.restore();
   }
 }
+
+// ---------- movable parts ----------
+// Wraps one part of a card (title, text box, logo...) so the user can move and
+// resize it in "Move parts" mode. hint = the part's usual box (centre of scaling);
+// fn may return the box it really drew. Art hit regions inside follow the move.
+function part(R, name, hint, fn) {
+  const { ctx } = R;
+  const o = (R.d.parts || {})[name] || {};
+  const dx = o.x || 0, dy = o.y || 0, s = o.s || 1;
+  const cx = hint.x + hint.w / 2, cy = hint.y + hint.h / 2;
+  const map = r => ({ x: cx + dx + (r.x - cx) * s, y: cy + dy + (r.y - cy) * s, w: r.w * s, h: r.h * s });
+  const moved = dx || dy || s !== 1;
+  ctx.save();
+  if (moved) { ctx.translate(cx + dx, cy + dy); ctx.scale(s, s); ctx.translate(-cx, -cy); }
+  const n = R.hits.length;
+  const got = fn();
+  ctx.restore();
+  if (moved) for (let i = n; i < R.hits.length; i++) R.hits[i].rect = map(R.hits[i].rect);
+  const r = got && typeof got === 'object' && 'w' in got && got.w > 0 ? got : hint;
+  R.parts.push({ name, rect: map(r) });
+  return got;
+}
+
+function variantRibbon(ctx, text, cx, cy, color, maxW) {
+  text = String(text || '').trim().toUpperCase();
+  if (!text) return;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(-0.03);
+  ctx.font = `40px ${TF.title}`;
+  const vw = Math.min(maxW || 620, ctx.measureText(text).width + 60);
+  box(ctx, { x: -vw / 2, y: -26, w: vw, h: 52 }, { fill: color || '#c8102e', lw: 4 });
+  fitFont(ctx, text, TF.title, vw - 40, 40);
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.strokeText(text, 0, 3); ctx.fillText(text, 0, 3);
+  ctx.restore();
+  return { x: cx - vw / 2, y: cy - 26, w: vw, h: 52 };
+}
+
+// How many of this card the deck holds.
+function cardCopies(c) { return Math.max(1, Math.min(99, parseInt((c.data || {}).copies, 10) || 1)); }
+const ONE_COPY_TYPES = new Set(['heroBack', 'villainBack', 'envBack', 'heroCharBack', 'faBack', 'eventBack']);
 
 // ---------- Events ----------
 function paperBg(R, color) {
@@ -791,7 +832,8 @@ function eventFrontDraw(R, critical) {
   } else {
     eventHeader(ctx, 'Event: ' + String(d.title || ''), d.date, y, W);
   }
-  const cap = captionBox(ctx, d.flavor, { x: 34, y: y + 26, w: W - 68, h: critical ? 250 : 280 }, { fit: true, size: 28, fill: d.captionColor });
+  const capR = { x: 34, y: y + 26, w: W - 68, h: critical ? 250 : 280 };
+  const cap = part(R, 'Caption', capR, () => captionBox(ctx, d.flavor, capR, { fit: true, size: 28, fill: d.captionColor }));
   const villain = String(d.villain || '').trim(), effT = String(d.effectTitle || '').trim(), effX = String(d.effectText || '').trim();
   // bottom block (normal Events): villain tag, effect title tag, effect text box
   let bottom = H - 30;
@@ -800,15 +842,22 @@ function eventFrontDraw(R, critical) {
     const eh = effX ? Math.ceil(lay.height) + 24 : 0;
     const eb = { x: 34, y: H - 30 - eh, w: W - 68, h: eh };
     let ty = eb.y - (effX ? 4 : 0);
-    if (effT) { ty -= 40; tag(ctx, effT, 34, ty, 38, { maxW: 600, fill: '#ffe14d' }); }
-    if (villain) { ty -= 42; tag(ctx, 'Villain: ' + villain, 34, ty, 38, { maxW: 600, fill: '#ffe14d' }); }
-    if (effX) { box(ctx, eb, { lw: 3, shadow: false }); gameText(R, effX, inset(eb, 16, 12), { base: 24, min: 11 }); }
+    if (effT) ty -= 40;
+    if (villain) ty -= 42;
+    const top = ty;
+    part(R, 'Effect', { x: 34, y: top, w: W - 68, h: H - 30 - top }, () => {
+      let t2 = eb.y - (effX ? 4 : 0);
+      if (effT) { t2 -= 40; tag(ctx, effT, 34, t2, 38, { maxW: 600, fill: '#ffe14d' }); }
+      if (villain) { t2 -= 42; tag(ctx, 'Villain: ' + villain, 34, t2, 38, { maxW: 600, fill: '#ffe14d' }); }
+      if (effX) { box(ctx, eb, { lw: 3, shadow: false }); gameText(R, effX, inset(eb, 16, 12), { base: 24, min: 11 }); }
+    });
     bottom = ty - 18;
   }
   const ct = (cap.h ? cap.y + cap.h : y) + 24;
   const ch = Math.max(200, bottom - ct), cw = Math.min(W - 200, ch * 0.66);
-  tiltedCover(R, { x: 70, y: ct, w: cw, h: ch }, d.tilt);
-  limitStamp(ctx, Math.min(W - 92, 70 + cw + 70), ct + ch - 70, 66, d.collectionLimit);
+  part(R, 'Cover', { x: 70, y: ct, w: cw, h: ch }, () => tiltedCover(R, { x: 70, y: ct, w: cw, h: ch }, d.tilt));
+  const sx2 = Math.min(W - 92, 70 + cw + 70), sy2 = ct + ch - 70;
+  if (String(d.collectionLimit || '').trim()) part(R, 'Stamp', { x: sx2 - 72, y: sy2 - 72, w: 144, h: 144 }, () => limitStamp(ctx, sx2, sy2, 66, d.collectionLimit));
 }
 
 // ---------- field helpers ----------
@@ -886,7 +935,7 @@ const TEMPLATES = {
         ['artR', [[388, 246], [716, 264], [716, 638], [380, 642]]],
         ['artB', [[34, 670], [716, 654], [716, 1016], [34, 1016]]],
       ], d.color, 'grayscale(1) contrast(1.15)');
-      drawLogo(R, 'logo', d.name, { x: 36, y: 34, w: 678, h: 200 }, d.color);
+      part(R, 'Logo', { x: 36, y: 34, w: 678, h: 200 }, () => drawLogo(R, 'logo', d.name, { x: 36, y: 34, w: 678, h: 200 }, d.color));
     },
   },
   heroChar: {
@@ -910,30 +959,23 @@ const TEMPLATES = {
       drawArt(R, 'bg', { x: 0, y: 0, w: W, h: H }, { phColor: d.color, phLabel: 'Background art' });
       drawArt(R, 'fg', { x: 0, y: 140, w: W, h: 680 }, { fit: 'contain-bottom', placeholder: false });
       let ly = 34;
-      if (d.tagline) { comicLabel(ctx, d.tagline, W / 2, 70, 40, { align: 'center', color: d.color, stroke: INK, maxW: 600 }); ly = 72; }
-      drawLogo(R, 'logo', d.name, { x: 34, y: ly, w: 682, h: 200 }, d.color);
-      if (String(d.variantName || '').trim()) {
-        ctx.save(); ctx.translate(W / 2, ly + 214); ctx.rotate(-0.03);
-        ctx.font = `40px ${TF.title}`;
-        const vt = String(d.variantName).toUpperCase(), vw = Math.min(620, ctx.measureText(vt).width + 60);
-        box(ctx, { x: -vw / 2, y: -26, w: vw, h: 52 }, { fill: d.variantColor || '#c8102e', lw: 4 });
-        fitFont(ctx, vt, TF.title, vw - 40, 40);
-        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-        ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.strokeText(vt, 0, 3); ctx.fillText(vt, 0, 3);
-        ctx.restore();
-      }
+      if (d.tagline) { part(R, 'Tagline', { x: 75, y: 30, w: 600, h: 50 }, () => comicLabel(ctx, d.tagline, W / 2, 70, 40, { align: 'center', color: d.color, stroke: INK, maxW: 600 })); ly = 72; }
+      part(R, 'Logo', { x: 34, y: ly, w: 682, h: 200 }, () => drawLogo(R, 'logo', d.name, { x: 34, y: ly, w: 682, h: 200 }, d.color));
+      if (String(d.variantName || '').trim()) part(R, 'Variant ribbon', { x: 65, y: ly + 188, w: 620, h: 52 }, () => variantRibbon(ctx, d.variantName, W / 2, ly + 214, d.variantColor));
       const pb = { x: 36, y: 806, w: 678, h: 212 };
-      box(ctx, pb);
-      hpStar(ctx, 650, 800, 66, d.hp);
-      tag(ctx, d.keywords, 584, 774, 44, { align: 'right', maxW: 300 });
-      comicLabel(ctx, d.powerName, pb.x + 22, pb.y + 54, 44, { maxW: 480 });
-      const hasN = !(d.noNemesis && !(d.nemesis && d.nemesis.src));
-      const tx = hasN ? pb.x + 112 : pb.x + 24;
-      let txt = String(d.powerText || '').trim();
-      if (txt && !/^\s*power\s*:/i.test(txt)) txt = 'POWER: ' + txt;
-      if (d.extraText) txt += '\n' + d.extraText;
-      gameText(R, txt, { x: tx, y: pb.y + 68, w: pb.x + pb.w - 22 - tx, h: pb.h - 80 }, { base: 30 });
-      if (hasN) nemesis(R, { x: pb.x + 18, y: pb.y + 92, w: 80, h: 92 }, d.name, d.color);
+      part(R, 'Power box', pb, () => {
+        box(ctx, pb);
+        comicLabel(ctx, d.powerName, pb.x + 22, pb.y + 54, 44, { maxW: 480 });
+        const hasN = !(d.noNemesis && !(d.nemesis && d.nemesis.src));
+        const tx = hasN ? pb.x + 112 : pb.x + 24;
+        let txt = String(d.powerText || '').trim();
+        if (txt && !/^\s*power\s*:/i.test(txt)) txt = 'POWER: ' + txt;
+        if (d.extraText) txt += '\n' + d.extraText;
+        gameText(R, txt, { x: tx, y: pb.y + 68, w: pb.x + pb.w - 22 - tx, h: pb.h - 80 }, { base: 30 });
+        if (hasN) nemesis(R, { x: pb.x + 18, y: pb.y + 92, w: 80, h: 92 }, d.name, d.color);
+      });
+      part(R, 'HP', { x: 584, y: 734, w: 132, h: 132 }, () => hpStar(ctx, 650, 800, 66, d.hp));
+      part(R, 'Keywords', { x: 300, y: 774, w: 284, h: 44 }, () => { const w = tag(ctx, d.keywords, 584, 774, 44, { align: 'right', maxW: 300 }); return w ? { x: 584 - w, y: 774, w, h: 44 } : null; });
     },
   },
   heroCharBack: {
@@ -949,9 +991,11 @@ const TEMPLATES = {
       const { ctx, d, W, H } = R;
       drawArt(R, 'bg', { x: 0, y: 0, w: W, h: H }, { phColor: d.color, phLabel: 'Background art' });
       const ib = { x: 36, y: 694, w: 678, h: 322 };
-      box(ctx, ib);
-      comicLabel(ctx, d.caption, ib.x + 22, ib.y + 54, 44, { maxW: 620 });
-      gameText(R, d.options, { x: ib.x + 22, y: ib.y + 72, w: ib.w - 44, h: ib.h - 88 }, { base: 30, bullets: true });
+      part(R, 'Text box', ib, () => {
+        box(ctx, ib);
+        comicLabel(ctx, d.caption, ib.x + 22, ib.y + 54, 44, { maxW: 620 });
+        gameText(R, d.options, { x: ib.x + 22, y: ib.y + 72, w: ib.w - 44, h: ib.h - 88 }, { base: 30, bullets: true });
+      });
     },
   },
   faFront: {
@@ -1036,7 +1080,7 @@ const TEMPLATES = {
         ['artL', [[34, 612], [372, 580], [364, 832], [34, 832]]],
         ['artR', [[388, 578], [716, 548], [716, 832], [380, 832]]],
       ], d.noTint ? null : d.tint, 'grayscale(1) contrast(1.2)');
-      drawLogo(R, 'logo', d.name, { x: 36, y: 846, w: 678, h: 176 }, d.color);
+      part(R, 'Logo', { x: 36, y: 846, w: 678, h: 176 }, () => drawLogo(R, 'logo', d.name, { x: 36, y: 846, w: 678, h: 176 }, d.color));
     },
   },
   villainChar: {
@@ -1045,6 +1089,7 @@ const TEMPLATES = {
       F.sec('Villain'), F.text('name', 'Villain name', 'Baron Example'), F.img('logo', 'Logo image (optional)'),
       F.text('title', 'Description banner', 'Master of Mayhem'), F.num('hp', 'HP', '40'), F.text('keywords', 'Keywords', 'Villain'),
       F.range('descShift', 'Banner + HP position (left/right)', 0, -420, 0),
+      F.text('variantName', 'Variant name (ribbon)', '', { help: 'For variant villains. Empty = base card.' }), F.color('variantColor', 'Variant ribbon color', '#c8102e'),
       F.sec('Game text'), F.area('setup', 'Setup (left edge)', 'Setup: Put Baron Example into play, "Master of Mayhem" side up.', { rows: 2 }),
       F.area('gameText', 'Game text', 'Reduce damage dealt to Baron Example by 1.\nEnd Phase: Baron Example deals each Hero target 2 melee damage.', { help: GT_HELP, rows: 6, chips: true }),
       F.range('boxWidth', 'Text box width', 360, 260, 640),
@@ -1069,12 +1114,13 @@ const TEMPLATES = {
         drawGameTextBox(ctx, d.setup, { x: 0, y: -24, w: H - 40 - bx * 2, h: 32 }, { base: 20, min: 10, color: '#fff', terms: terms(d) });
         ctx.restore();
       }
-      drawLogo(R, 'logo', d.name, { x: 460, y: 20, w: 570, h: 136 }, d.color);
+      part(R, 'Logo', { x: 460, y: 20, w: 570, h: 136 }, () => drawLogo(R, 'logo', d.name, { x: 460, y: 20, w: 570, h: 136 }, d.color));
+      if (String(d.variantName || '').trim()) part(R, 'Variant ribbon', { x: sx + 20, y: 24, w: 380, h: 52 }, () => variantRibbon(ctx, d.variantName, sx + 210, 50, d.variantColor, 380));
       const hasT = !!String(d.title || '').trim();
       const dx = d.descShift || 0;
-      if (hasT) banner(ctx, d.title, { x: 590 + dx, y: 162, w: 350, h: 54 }, { fill: '#ffd23f', plain: true });
-      hpStar(ctx, 980 + dx, 188, 58, d.hp);
-      comicLabel(ctx, d.keywords, 1010 + dx, 262, 32, { align: 'right' });
+      if (hasT) part(R, 'Description', { x: 590 + dx, y: 162, w: 350, h: 54 }, () => banner(ctx, d.title, { x: 590 + dx, y: 162, w: 350, h: 54 }, { fill: '#ffd23f', plain: true }));
+      part(R, 'HP', { x: 922 + dx, y: 130, w: 116, h: 116 }, () => hpStar(ctx, 980 + dx, 188, 58, d.hp));
+      part(R, 'Keywords', { x: 760 + dx, y: 232, w: 250, h: 40 }, () => comicLabel(ctx, d.keywords, 1010 + dx, 262, 32, { align: 'right' }));
       const bw = d.boxWidth || 360;
       const adv = String(d.advanced || '').trim();
       const top = 282, bottom = adv ? 668 : 722;
@@ -1086,11 +1132,13 @@ const TEMPLATES = {
         if (d.boxAlign === 'center') tb.y = top + (bottom - top - tb.h) / 2;
         else if (d.boxAlign === 'bottom') tb.y = bottom - tb.h;
       }
-      box(ctx, tb);
-      gameText(R, d.gameText, inset(tb, 18, 16), { base: 26 });
-      const hasN = !(d.noNemesis && !(d.nemesis && d.nemesis.src));
-      if (hasN) nemesis(R, { x: tb.x - 96, y: tb.y + tb.h - 100, w: 84, h: 96 }, d.name, d.color);
-      if (adv) {
+      part(R, 'Text box', tb, () => {
+        box(ctx, tb);
+        gameText(R, d.gameText, inset(tb, 18, 16), { base: 26 });
+        const hasN = !(d.noNemesis && !(d.nemesis && d.nemesis.src));
+        if (hasN) nemesis(R, { x: tb.x - 96, y: tb.y + tb.h - 100, w: 84, h: 96 }, d.name, d.color);
+      });
+      if (adv) part(R, 'Advanced', { x: sx + 18, y: 684, w: W - 44 - sx, h: 52 }, () => {
         const ay = 684, ah = 52;
         const tw = tag(ctx, 'Advanced…', sx + 18, ay, ah, { fill: '#ffb000' });
         const full = W - 26 - (sx + 18);
@@ -1098,7 +1146,43 @@ const TEMPLATES = {
         box(ctx, ab, { lw: 4 });
         const at = (d.advPhase ? '**' + d.advPhase.toUpperCase() + ' PHASE:** ' : '') + adv.replace(/\n/g, ' ');
         drawGameTextBox(ctx, at, inset(ab, 12, 6), { base: 20, min: 10, terms: terms(d), valign: 'center' });
-      }
+        return { x: sx + 18, y: ay, w: ab.x + ab.w - sx - 18, h: ah };
+      });
+    },
+  },
+  teamVillain: {
+    name: 'Team villain character card', group: 'Villain', orient: 'v', badge: 'NEW',
+    fields: [
+      F.sec('Villain'), F.text('name', 'Villain name', 'Madame Example'), F.img('logo', 'Logo image (optional)'),
+      F.text('title', 'Description banner', 'Queen of Static'), F.num('hp', 'HP', '22'), F.text('keywords', 'Keywords', 'Villain'),
+      F.text('variantName', 'Variant name (ribbon)', ''), F.color('variantColor', 'Variant ribbon color', '#c8102e'),
+      F.sec('Game text'), F.area('gameText', 'Game text', 'Setup: Put Madame Example into play.\nEnd Phase: Madame Example deals the Hero target with the lowest HP 2 lightning damage.', { help: GT_HELP, rows: 6, chips: true }),
+      F.area('advanced', 'Advanced text', '', { rows: 2 }),
+      F.img('nemesis', 'Nemesis icon'), F.tog('noNemesis', 'No nemesis icon'),
+      F.sec('Art'), F.img('bg', 'Background art'), F.img('fg', 'Foreground art (cut-out)'),
+      F.sec('Style', { closed: true }), F.color('color', 'Villain color', '#8e2442'),
+      F.range('textSize', 'Text size (%)', 100, 60, 140), F.tog('hiPhase', 'Higher-contrast phase labels'), F.text('boldTerms', 'Extra bolded terms'),
+    ],
+    draw(R) {
+      const { ctx, d, W, H } = R;
+      drawArt(R, 'bg', { x: 0, y: 0, w: W, h: H }, { phColor: d.color, phLabel: 'Background art' });
+      drawArt(R, 'fg', { x: 0, y: 150, w: W, h: 560 }, { fit: 'contain-bottom', placeholder: false });
+      part(R, 'Logo', { x: 34, y: 28, w: 682, h: 170 }, () => drawLogo(R, 'logo', d.name, { x: 34, y: 28, w: 682, h: 170 }, d.color));
+      if (String(d.title || '').trim()) part(R, 'Description', { x: 130, y: 204, w: 490, h: 52 }, () => banner(ctx, d.title, { x: 130, y: 204, w: 490, h: 52 }, { fill: '#ffd23f', plain: true }));
+      if (String(d.variantName || '').trim()) part(R, 'Variant ribbon', { x: 75, y: 250, w: 600, h: 52 }, () => variantRibbon(ctx, d.variantName, W / 2, 290, d.variantColor));
+      const adv = String(d.advanced || '').trim();
+      const tb = { x: 36, y: 712, w: 678, h: 304 };
+      part(R, 'Text box', tb, () => {
+        box(ctx, tb);
+        const hasN = !(d.noNemesis && !(d.nemesis && d.nemesis.src));
+        const tx = hasN ? tb.x + 108 : tb.x + 22;
+        let txt = String(d.gameText || '');
+        if (adv) txt += '\n**ADVANCED:** ' + adv.replace(/\n/g, ' ');
+        gameText(R, txt, { x: tx, y: tb.y + 54, w: tb.x + tb.w - 20 - tx, h: tb.h - 68 }, { base: 28 });
+        if (hasN) nemesis(R, { x: tb.x + 16, y: tb.y + tb.h - 112, w: 80, h: 92 }, d.name, d.color);
+      });
+      part(R, 'Keywords', { x: 300, y: 664, w: 290, h: 44 }, () => { const w = tag(ctx, d.keywords, 588, 664, 44, { align: 'right', maxW: 300 }); return w ? { x: 588 - w, y: 664, w, h: 44 } : null; });
+      part(R, 'HP', { x: 586, y: 642, w: 128, h: 128 }, () => hpStar(ctx, 650, 706, 62, d.hp));
     },
   },
   envDeck: {
@@ -1120,14 +1204,15 @@ const TEMPLATES = {
       strokeShape(ctx, art, 6);
       const hasQ = String(d.quote || '').trim() || String(d.attribution || '').trim();
       const hasHp = d.hp !== '' && d.hp != null;
-      banner(ctx, d.title, { x: 560, y: 46, w: hasHp ? 380 : 462, h: 72 }, { color: d.titleColor });
-      if (hasHp) hpStar(ctx, 984, 84, 56, d.hp);
+      const tr = { x: 560, y: 46, w: hasHp ? 380 : 462, h: 72 };
+      part(R, 'Title', tr, () => banner(ctx, d.title, tr, { color: d.titleColor }));
+      if (hasHp) part(R, 'HP', { x: 928, y: 28, w: 112, h: 112 }, () => hpStar(ctx, 984, 84, 56, d.hp));
       const tb = { x: 576, y: 176, w: 432, h: hasQ ? 392 : 520 };
-      box(ctx, tb, { dots: rgba(fc, 0.14) });
-      gameText(R, d.gameText, { x: tb.x + 20, y: tb.y + 32, w: tb.w - 40, h: tb.h - 46 }, { base: 28 });
-      tag(ctx, d.keywords, 560, 132, 52, { maxW: 440 });
-      if (d.suddenly) suddenly(ctx, W - 44, 128);
-      if (hasQ) quoteBubble(ctx, d.quote, d.attribution, { x: 250, y: 592, w: 770, h: 120 }, shade(fc, -0.3), (d.quoteSize || 100) / 100);
+      part(R, 'Text box', tb, () => { box(ctx, tb, { dots: rgba(fc, 0.14) }); gameText(R, d.gameText, { x: tb.x + 20, y: tb.y + 32, w: tb.w - 40, h: tb.h - 46 }, { base: 28 }); });
+      part(R, 'Keywords', { x: 560, y: 132, w: 260, h: 52 }, () => { const w = tag(ctx, d.keywords, 560, 132, 52, { maxW: 440 }); return w ? { x: 560, y: 132, w, h: 52 } : null; });
+      if (d.suddenly) part(R, 'SUDDENLY!', { x: W - 310, y: 118, w: 270, h: 70 }, () => suddenly(ctx, W - 44, 128));
+      const qr = { x: 250, y: 592, w: 770, h: 120 };
+      if (hasQ) part(R, 'Quote', qr, () => quoteBubble(ctx, d.quote, d.attribution, qr, shade(fc, -0.3), (d.quoteSize || 100) / 100));
       artistCredit(R, d.artist, W, H);
     },
   },
@@ -1140,7 +1225,7 @@ const TEMPLATES = {
       const art = { x: 26, y: 26, w: W - 52, h: H - 52 };
       drawArt(R, 'art', art, { phColor: '#3f7f5a' });
       strokeShape(ctx, art, 5);
-      tag(ctx, d.title, 52, 50, 64, { maxW: 700 });
+      part(R, 'Title', { x: 52, y: 50, w: 400, h: 64 }, () => { const w = tag(ctx, d.title, 52, 50, 64, { maxW: 700 }); return w ? { x: 52, y: 50, w, h: 64 } : null; });
     },
   },
   principle: {
@@ -1161,10 +1246,9 @@ const TEMPLATES = {
       strokeShape(ctx, art, 6);
       const hasQ = String(d.quote || '').trim();
       const tb = { x: 34, y: 112, w: 456, h: hasQ ? 456 : 596 };
-      box(ctx, tb);
-      gameText(R, d.gameText, inset(tb, 24, 22), { base: 30, valign: 'center' });
-      banner(ctx, d.title, { x: 30, y: 38, w: 466, h: 68 }, { color: d.titleColor });
-      if (hasQ) quoteBubble(ctx, d.quote, '', { x: 30, y: 590, w: 620, h: 126 }, fc, (d.quoteSize || 100) / 100);
+      part(R, 'Text box', tb, () => { box(ctx, tb); gameText(R, d.gameText, inset(tb, 24, 22), { base: 30, valign: 'center' }); });
+      part(R, 'Title', { x: 30, y: 38, w: 466, h: 68 }, () => banner(ctx, d.title, { x: 30, y: 38, w: 466, h: 68 }, { color: d.titleColor }));
+      if (hasQ) part(R, 'Quote', { x: 30, y: 590, w: 620, h: 126 }, () => quoteBubble(ctx, d.quote, '', { x: 30, y: 590, w: 620, h: 126 }, fc, (d.quoteSize || 100) / 100));
       artistCredit(R, d.artist, W, H);
     },
   },
@@ -1211,13 +1295,14 @@ const TEMPLATES = {
       const cw = 360, cx = 352;
       const isz = 21, ih = issues.length ? issues.length * isz * 1.2 + 14 : 0;
       const chh = Math.min(H - 60 - ih, cw / 0.66);
-      tiltedCover(R, { x: cx, y: 30, w: cw, h: chh }, d.tilt);
-      if (issues.length) {
+      part(R, 'Cover', { x: cx, y: 30, w: cw, h: chh }, () => tiltedCover(R, { x: cx, y: 30, w: cw, h: chh }, d.tilt));
+      if (issues.length) part(R, 'Issue list', { x: cx - 10, y: 30 + chh + 10, w: cw + 20, h: ih }, () => {
         ctx.save(); ctx.fillStyle = '#2a2016'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
         issues.forEach((l, i) => { fitFont(ctx, l, TF.body, cw + 20, isz, 'italic'); ctx.fillText(l, cx + cw / 2, 30 + chh + 14 + i * isz * 1.2); });
         ctx.restore();
-      }
-      captionBox(ctx, d.collFlavor, { x: 30, y: 78, w: cx - 50, h: H - 108 }, { size: 30, pad: 16, fill: d.captionColor });
+      });
+      part(R, 'Caption', { x: 30, y: 78, w: cx - 50, h: H - 108 }, () => captionBox(ctx, d.collFlavor, { x: 30, y: 78, w: cx - 50, h: H - 108 }, { size: 30, pad: 16, fill: d.captionColor }));
+      part(R, 'Rewards', { x: cx + cw + 22, y: 30, w: W - 50 - cx - cw, h: H - 60 }, () => {
       // rewards column
       const rx = cx + cw + 22, rw = W - 28 - rx;
       const s = (d.textSize || 100) / 100;
@@ -1243,6 +1328,7 @@ const TEMPLATES = {
       const ow = ctx.measureText('- OR -').width + 28;
       ctx.restore();
       tag(ctx, '- OR -', rb.x + (rb.w - ow) / 2, mid - 20, 40, { fill: '#ffe14d' });
+      });
     },
   },
   criticalFront: {
@@ -1261,12 +1347,15 @@ const TEMPLATES = {
   },
 };
 
-for (const t of Object.values(TEMPLATES)) t.fields.push(F.sec('Print', { closed: true }), F.tog('border', 'Black card border', false, { help: 'Like printed cards. Good for Tabletop Simulator too.' }));
+for (const [k, t] of Object.entries(TEMPLATES)) {
+  t.fields.push(F.sec('Print and decks', { closed: true }), F.tog('border', 'Black card border', false, { help: 'Like printed cards. Good for Tabletop Simulator too.' }));
+  if (!ONE_COPY_TYPES.has(k)) t.fields.push(F.num('copies', 'Copies in the deck', '1', { help: 'How many of this card the deck holds. Used by deck counts, print, PDF and Tabletop Simulator.' }));
+}
 
 // Order and grouping for the "New card" picker. Pairs make two linked cards at once.
 const PICKER = [
   ['Hero', ['heroDeck', 'heroBack', 'heroChar', 'heroCharBack', 'faFront', 'faBack', ['heroChar', 'heroCharBack'], ['faFront', 'faBack']]],
-  ['Villain', ['villainDeck', 'villainBack', 'villainChar', ['villainChar', 'villainChar']]],
+  ['Villain', ['villainDeck', 'villainBack', 'villainChar', ['villainChar', 'villainChar'], 'teamVillain', ['teamVillain', 'teamVillain']]],
   ['Environment', ['envDeck', 'envBack']],
   ['Principles', ['principle']],
   ['Events', ['eventFront', 'eventBack', 'criticalFront', ['eventFront', 'eventBack'], ['criticalFront', 'villainChar']]],
@@ -1313,7 +1402,7 @@ async function renderCard(card, canvas, o = {}) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cw, ch);
   ctx.setTransform(sc, 0, 0, sc, b * sc, b * sc);
-  const R = { ctx, d, W, H, imgs, hits: [], exporting: !!o.exporting, seed: hashStr(card.id || 'x'), bleed: b, scale: sc };
+  const R = { ctx, d, W, H, imgs, hits: [], parts: [], exporting: !!o.exporting, seed: hashStr(card.id || 'x'), bleed: b, scale: sc };
   ctx.save();
   tpl.draw(R);
   ctx.restore();

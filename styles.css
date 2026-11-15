@@ -34,6 +34,15 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
 
 .layout { display: grid; grid-template-columns: 230px minmax(0, 1fr) 390px; height: calc(100vh - 57px - 28px); min-height: 520px; }
 .cards { border-right: 1px solid var(--line); background: var(--panel); padding: 10px; overflow: auto; }
+.deckSum { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; font-size: 11px; }
+.deckSum span { padding: 2px 6px; border-radius: 10px; background: var(--panel2); color: var(--muted); }
+.deckSum span.ok { color: #7fd48a; }
+.deckSum span.off { color: #ffb84d; }
+.alts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.alts small { color: var(--muted); font-size: 11px; width: 100%; }
+.alts .alt { position: relative; width: 44px; height: 44px; border-radius: 5px; border: 1px solid #3a414f; background: #0d0f13 center/cover no-repeat; cursor: pointer; }
+.alts .alt:hover { border-color: #ffb000; }
+.alts .alt .x { position: absolute; top: -7px; right: -7px; width: 18px; height: 18px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 16px; }
 .cardList { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .ci { display: flex; gap: 8px; align-items: center; padding: 6px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
 .ci:hover { background: var(--panel2); }

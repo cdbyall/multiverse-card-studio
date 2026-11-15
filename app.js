@@ -126,6 +126,7 @@ async function renderPreview() {
   if (!c) return;
   lastR = await renderCard(c, preview, { bleed: S.bleed });
   if (S.guides) drawGuides(lastR);
+  if (S.move) drawPartOutlines(lastR);
   fitPreview();
   scheduleThumb(c);
 }
@@ -165,14 +166,32 @@ function buildList() {
   for (const c of S.proj.cards) {
     const cv = el('canvas');
     const item = el('div', { class: 'ci' + (c.id === S.cardId ? ' on' : '') + (TEMPLATES[c.type].orient === 'h' ? ' h' : ''), 'data-id': c.id, onclick: () => selectCard(c.id) },
-      cv, el('div', { class: 't' }, el('b', {}, cardLabel(c)), el('small', {}, TEMPLATES[c.type].name)));
+      cv, el('div', { class: 't' }, el('b', {}, cardLabel(c)), el('small', {}, typeLine(c))));
     list.append(item);
     renderCard(c, cv, { scale: 0.16, exporting: true });
   }
+  updateDeckSum();
 }
+function typeLine(c) { const n = cardCopies(c); return TEMPLATES[c.type].name + (n > 1 ? '  ×' + n : ''); }
 function refreshListItem(c) {
   const it = document.querySelector(`.ci[data-id="${c.id}"] .t b`);
   if (it) it.textContent = cardLabel(c);
+  const sm = document.querySelector(`.ci[data-id="${c.id}"] .t small`);
+  if (sm) sm.textContent = typeLine(c);
+  updateDeckSum();
+}
+// Card counts per deck (copies included). Hero decks are 40 cards.
+const DECK_SIZES = { heroDeck: ['Hero deck', 40], villainDeck: ['Villain deck', 0], envDeck: ['Environment deck', 0], eventFront: ['Events', 0], principle: ['Principles', 0] };
+function updateDeckSum() {
+  const box = $('#deckSum'); if (!box) return;
+  box.innerHTML = '';
+  if (!S.proj) return;
+  const n = {};
+  for (const c of S.proj.cards) if (DECK_SIZES[c.type]) n[c.type] = (n[c.type] || 0) + cardCopies(c);
+  for (const [t, v] of Object.entries(n)) {
+    const [label, want] = DECK_SIZES[t];
+    box.append(el('span', { class: want && v !== want ? 'off' : want ? 'ok' : '', title: want ? `A ${label.toLowerCase()} has ${want} cards` : '' }, `${label}: ${v}${want ? ' / ' + want : ''}`));
+  }
 }
 function selectCard(id) {
   S.cardId = id;
@@ -207,7 +226,7 @@ function fieldRow(c, f) {
   const set = (v, opts = {}) => {
     d[f.key] = v;
     requestRender(); scheduleSave(); pushHistory(opts.now);
-    if (['title', 'name', 'caption'].includes(f.key)) refreshListItem(c);
+    if (['title', 'name', 'caption', 'copies'].includes(f.key)) refreshListItem(c);
     if (f.rebuild) buildForm();
   };
   const row = el('div', { class: 'fr' + (f.short ? ' short' : '') });
@@ -268,12 +287,41 @@ function imageField(c, f) {
     el('div', { class: 'btns' },
       el('button', { type: 'button', onclick: () => chooseImage(f.key) }, a.src ? 'Replace' : 'Choose…'),
       el('button', { type: 'button', onclick: () => imageFromUrl(f.key) }, 'From URL'),
-      a.src ? el('button', { type: 'button', onclick: () => { c.data[f.key] = { src: '', x: 0, y: 0, zoom: 1 }; afterImageChange(); } }, 'Remove') : null,
+      a.src ? el('button', { type: 'button', onclick: () => { const alts = a.alts; c.data[f.key] = { src: '', x: 0, y: 0, zoom: 1, ...(alts && alts.length ? { alts } : {}) }; afterImageChange(); } }, 'Remove') : null,
       a.src ? el('button', { type: 'button', onclick: () => openCrop(f.key) }, 'Crop…') : null,
       a.src ? el('button', { type: 'button', onclick: async () => { if (await autoFrame(f.key)) afterImageChange(); } }, 'Auto frame') : null,
-      a.src ? el('button', { type: 'button', onclick: () => { Object.assign(c.data[f.key], { x: 0, y: 0, zoom: 1 }); afterImageChange(); } }, 'Center') : null),
-    a.src ? el('div', { class: 'zr rangeRow' }, el('small', {}, 'Zoom'), zoom) : null);
+      a.src ? el('button', { type: 'button', onclick: () => { Object.assign(c.data[f.key], { x: 0, y: 0, zoom: 1 }); afterImageChange(); } }, 'Center') : null,
+      a.src ? el('button', { type: 'button', title: 'Keep this picture (and its framing) as a version you can switch back to', onclick: () => keepVersion(c, f.key) }, '+ Version') : null),
+    a.src ? el('div', { class: 'zr rangeRow' }, el('small', {}, 'Zoom'), zoom) : null,
+    altsRow(c, f.key));
   return wrap;
+}
+
+// ---------- art versions ----------
+// Each image can hold other versions (picture + framing). Clicking one swaps it in.
+const plainArt = a => ({ src: a.src, x: a.x || 0, y: a.y || 0, zoom: a.zoom || 1 });
+function keepVersion(c, key) {
+  const a = c.data[key]; if (!a || !a.src) return;
+  a.alts = a.alts || [];
+  const same = a.alts.find(v => v.src === a.src && v.x === (a.x || 0) && v.y === (a.y || 0) && v.zoom === (a.zoom || 1));
+  if (same) return toast('That version is already kept.');
+  a.alts.push(plainArt(a));
+  afterImageChange(); toast('Version kept. Add or replace the picture; click a version to switch back.');
+}
+function altsRow(c, key) {
+  const a = c.data[key];
+  if (!a || !a.alts || !a.alts.length) return null;
+  return el('div', { class: 'alts' }, el('small', {}, 'Versions'),
+    ...a.alts.map((v, i) => {
+      const t = el('div', { class: 'alt', title: 'Use this version', onclick: () => {
+        const now = plainArt(a), keep = a.alts;
+        c.data[key] = { ...plainArt(v), alts: keep };
+        if (now.src) keep[i] = now; else keep.splice(i, 1);
+        afterImageChange();
+      } }, el('button', { type: 'button', class: 'x', title: 'Delete this version', onclick: e => { e.stopPropagation(); a.alts.splice(i, 1); afterImageChange(); } }, '×'));
+      t.style.backgroundImage = `url("${v.src}")`;
+      return t;
+    }));
 }
 
 function afterImageChange() { buildForm(); requestRender(); scheduleSave(); pushHistory(true); }
@@ -317,7 +365,8 @@ async function setImageFromFile(key, file) {
   const c = cur(); if (!c) return;
   try {
     const src = await fileToDataUrl(file);
-    c.data[key] = { src, x: 0, y: 0, zoom: 1 };
+    const alts = c.data[key] && c.data[key].alts;
+    c.data[key] = { src, x: 0, y: 0, zoom: 1, ...(alts && alts.length ? { alts } : {}) };
     await autoFrame(key);
     afterImageChange();
   } catch (e) { toast('That file could not be read as an image.'); }
@@ -457,6 +506,40 @@ $('#cropCanvas').addEventListener('wheel', e => {
 $('#cropAuto').onclick = async () => { await autoFrame(crop.key); $('#cropZoom').value = cur().data[crop.key].zoom; drawCrop(); requestRender(); scheduleSave(); };
 $('#cropDone').onclick = () => { $('#dlgCrop').close(); pushHistory(true); buildForm(); };
 
+// ---------- move parts mode ----------
+function drawPartOutlines(R) {
+  const { ctx, bleed } = R;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, bleed, bleed);
+  ctx.font = `600 18px ${TF.label}`; ctx.textBaseline = 'bottom';
+  for (const p of R.parts) {
+    const r = p.rect, on = drag && drag.part === p.name;
+    ctx.setLineDash(on ? [] : [8, 6]); ctx.lineWidth = on ? 4 : 2.5;
+    ctx.strokeStyle = on ? '#ffb000' : 'rgba(0,200,255,.95)'; ctx.strokeRect(r.x, r.y, r.w, r.h);
+    const tw = ctx.measureText(p.name).width + 10;
+    ctx.fillStyle = 'rgba(0,120,170,.9)'; ctx.fillRect(r.x, r.y - 22, tw, 22);
+    ctx.fillStyle = '#fff'; ctx.fillText(p.name, r.x + 5, r.y - 2);
+  }
+  ctx.restore();
+}
+function partAt(p) {
+  if (!lastR) return null;
+  let best = null;
+  for (const q of lastR.parts) {
+    const r = q.rect;
+    if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h && (!best || r.w * r.h < best.rect.w * best.rect.h)) best = q;
+  }
+  return best;
+}
+function partData(name) { const d = cur().data; d.parts = d.parts || {}; return d.parts[name] = d.parts[name] || { x: 0, y: 0, s: 1 }; }
+$('#tbMove').onchange = e => {
+  S.move = e.target.checked;
+  $('#tbResetParts').hidden = !S.move;
+  $('.hint').textContent = S.move ? 'Move parts: drag a box to move it, scroll to resize, double-click to put it back.' : HINT;
+  requestRender();
+};
+$('#tbResetParts').onclick = () => { const c = cur(); if (!c || !c.data.parts) return; delete c.data.parts; requestRender(); scheduleSave(); pushHistory(true); toast('Layout reset'); };
+
 // ---------- preview interaction: drag, zoom, drop, paste ----------
 function toCard(e) {
   const r = preview.getBoundingClientRect();
@@ -473,8 +556,17 @@ function hitAt(p, want) {
 }
 const usable = h => h.has || h.click;
 let drag = null;
+const HINT = $('.hint').textContent;
 preview.addEventListener('pointerdown', e => {
   const p = toCard(e);
+  if (S.move) {
+    const q = partAt(p); if (!q) return;
+    const o = partData(q.name);
+    drag = { part: q.name, p, ox: o.x, oy: o.y, moved: false };
+    preview.setPointerCapture(e.pointerId); preview.className = 'grabbing';
+    requestRender();
+    return;
+  }
   const h = hitAt(p, usable);
   if (!h) return;
   S.lastHit = h.key;
@@ -486,6 +578,13 @@ preview.addEventListener('pointerdown', e => {
 });
 preview.addEventListener('pointermove', e => {
   const p = toCard(e);
+  if (drag && drag.part) {
+    const o = partData(drag.part);
+    o.x = Math.round(drag.ox + (p.x - drag.p.x)); o.y = Math.round(drag.oy + (p.y - drag.p.y));
+    drag.moved = true; requestRender();
+    return;
+  }
+  if (S.move) { const q = partAt(p); preview.className = q ? 'grab' : ''; preview.title = q ? q.name + ': drag to move, scroll to resize, double-click to reset' : ''; return; }
   if (drag) {
     const a = cur().data[drag.key];
     a.x = Math.round(drag.ox + (p.x - drag.p.x));
@@ -501,10 +600,23 @@ preview.addEventListener('pointermove', e => {
 });
 preview.addEventListener('pointerup', () => {
   if (drag && drag.moved) { scheduleSave(); pushHistory(true); }
+  const was = drag && drag.part;
   drag = null; preview.className = '';
+  if (was) requestRender();
 });
-preview.addEventListener('dblclick', e => { const h = hitAt(toCard(e), h => h.has); if (h) chooseImage(h.key); });
+preview.addEventListener('dblclick', e => {
+  if (S.move) { const q = partAt(toCard(e)); if (q && cur().data.parts) { delete cur().data.parts[q.name]; requestRender(); scheduleSave(); pushHistory(true); } return; }
+  const h = hitAt(toCard(e), h => h.has); if (h) chooseImage(h.key);
+});
 preview.addEventListener('wheel', e => {
+  if (S.move) {
+    const q = partAt(toCard(e)); if (!q) return;
+    e.preventDefault();
+    const o = partData(q.name);
+    o.s = Math.max(0.35, Math.min(2.5, Math.round((o.s || 1) * Math.exp(-e.deltaY * 0.0012) * 1000) / 1000));
+    requestRender(); scheduleSave(); pushHistory();
+    return;
+  }
   const h = hitAt(toCard(e), h => h.has);
   if (!h) return;
   e.preventDefault();
@@ -544,7 +656,7 @@ function addCards(types) {
   if (!S.proj) return;
   const at = S.proj.cards.findIndex(c => c.id === S.cardId);
   const made = types.map(t => newCard(t));
-  if (made.length === 2 && made[0].type === 'villainChar' && made[1].type === 'villainChar') {
+  if (made.length === 2 && made[0].type === made[1].type && /^(villainChar|teamVillain)$/.test(made[0].type)) {
     made[1].data.title = 'Flipped Side'; made[1].data.setup = ''; made[1].data.hp = '';
   }
   S.proj.cards.splice(at < 0 ? S.proj.cards.length : at + 1, 0, ...made);
@@ -741,7 +853,7 @@ $('#prGo').onclick = async () => {
     }
     let url;
     try { url = out.toDataURL('image/jpeg', 0.95); } catch (e) { toast('Skipped a card with a blocked image.'); continue; }
-    for (let k = 0; k < copies; k++) imgs.push(url);
+    for (let k = 0; k < copies * cardCopies(c); k++) imgs.push(url);
   }
   const style = el('style', { id: 'pageStyle' }, `@page { size: ${$('#prPaper').value === 'a4' ? 'A4' : 'letter'} portrait; margin: 0.25in; }`);
   area.append(style);
@@ -795,7 +907,7 @@ $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
 // Builds TTS deck sheets (up to 10 x 7 cards per image) and a Saved Object file that
 // spawns a bag with every deck. Character cards get their own back (Unique Backs);
 // deck cards share the project's deck back of the same kind.
-const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', eventFront: 'eventBack', criticalFront: 'villainChar' };
+const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', teamVillain: 'teamVillain', eventFront: 'eventBack', criticalFront: 'villainChar' };
 const TTS_CHAR_NAMES = { Hero: 'Hero character cards', Villain: 'Villain character cards', Events: 'Event cards' };
 const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack' };
 const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack']);
@@ -811,7 +923,7 @@ function ttsGroups(cards) {
       let back = null;
       if (nx && nx.type === pt) { back = nx; i++; }
       const o = TEMPLATES[c.type].orient, grp = TEMPLATES[c.type].group, gk = grp + '|' + o;
-      if (!chars.has(gk)) chars.set(gk, { name: TTS_CHAR_NAMES[grp] || grp + ' cards', faces: [], backs: [], unique: true, orient: o });
+      if (!chars.has(gk)) chars.set(gk, { name: grp === 'Villain' && o === 'v' ? 'Team villain cards' : TTS_CHAR_NAMES[grp] || grp + ' cards', faces: [], backs: [], unique: true, orient: o });
       chars.get(gk).faces.push(c); chars.get(gk).backs.push(back);
       continue;
     }
@@ -901,10 +1013,11 @@ async function buildTTS(proj, folderPath) {
     const cd = { FaceURL: base + faceFile, BackURL: base + backFile, NumWidth: faces.cols, NumHeight: faces.rows, BackIsHidden: true, UniqueBack: g.unique, Type: 0 };
     const side = g.orient === 'h';
     const tf = x => ({ posX: x, posY: 1, posZ: 0, rotX: 0, rotY: 180, rotZ: 0, scaleX: 1, scaleY: 1, scaleZ: 1 });
-    const cardsJ = g.faces.map((c, i) => ({
+    // copies share one picture on the sheet (same CardID)
+    const cardsJ = g.faces.flatMap((c, i) => Array.from({ length: cardCopies(c) }, () => ({
       Name: 'Card', Transform: tf(0), Nickname: cardLabel(c), Description: TEMPLATES[c.type].name,
       CardID: deckKey * 100 + i, SidewaysCard: side, HideWhenFaceDown: !g.unique, CustomDeck: { [deckKey]: cd },
-    }));
+    })));
     const x = (objs.length % 6) * 3.2 - 8, z = Math.floor(objs.length / 6) * -4.4;
     if (cardsJ.length === 1) objs.push({ ...cardsJ[0], Transform: { ...tf(x), posZ: z } });
     else objs.push({
@@ -961,7 +1074,7 @@ $('#btnTTS').onclick = async () => {
   $('#ttsPath').value = p || TTS_DEFAULT;
   const groups = S.proj ? ttsGroups(S.proj.cards) : [];
   $('#ttsSummary').textContent = groups.length
-    ? groups.map(g => `${g.name}: ${g.faces.length} card${g.faces.length > 1 ? 's' : ''}${g.unique ? ' (own backs)' : g.back ? ' + "' + cardLabel(g.back) + '" back' : ' + plain back'}`).join(' · ')
+    ? groups.map(g => { const n = g.faces.reduce((a, c) => a + cardCopies(c), 0); return `${g.name}: ${n} card${n > 1 ? 's' : ''}${g.unique ? ' (own backs)' : g.back ? ' + "' + cardLabel(g.back) + '" back' : ' + plain back'}`; }).join(' · ')
     : 'No playable cards yet.';
   $('#ttsSaveFolder').hidden = !window.showDirectoryPicker;
   $('#dlgTTS').showModal();
@@ -992,6 +1105,145 @@ async function ttsRun(toFolder) {
 }
 $('#ttsSaveFolder').onclick = () => ttsRun(true);
 $('#ttsZip').onclick = () => ttsRun(false);
+
+// ---------- share by link (GitHub Gist) ----------
+// The project goes into a secret gist on the user's own GitHub account, one file per
+// picture. The link opens this site with #gist=<id>, which offers to import it.
+const GIST_TOKEN_KEY = 'mcs-gist-token';
+function tokenGet() { try { return localStorage.getItem(GIST_TOKEN_KEY) || ''; } catch (e) { return ''; } }
+function tokenSet(v) { try { v ? localStorage.setItem(GIST_TOKEN_KEY, v) : localStorage.removeItem(GIST_TOKEN_KEY); } catch (e) {} }
+async function shrinkForShare(src) {
+  if (!/^data:image\//.test(src) || src.length < 400000) return src;
+  const img = await loadImg(src);
+  if (!img) return src;
+  const s = Math.min(1, 2000 / Math.max(img.width, img.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s);
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  const out = cv.toDataURL('image/webp', 0.86);
+  return out.startsWith('data:image/webp') && out.length < src.length ? out : src;
+}
+async function shareFiles(proj) {
+  const p = cloneVal(proj);
+  const files = {}, seen = new Map();
+  let n = 0;
+  const take = async a => {
+    if (!a || typeof a !== 'object' || !a.src || !/^data:/.test(a.src)) return;
+    if (!seen.has(a.src)) { const name = 'img' + (++n) + '.txt'; seen.set(a.src, name); files[name] = { content: await shrinkForShare(a.src) }; }
+    a.src = 'gistfile:' + seen.get(a.src);
+  };
+  for (const c of p.cards) for (const v of Object.values(c.data || {})) {
+    if (v && typeof v === 'object' && 'src' in v) { await take(v); for (const alt of v.alts || []) await take(alt); }
+  }
+  files['project.mcs.json'] = { content: JSON.stringify({ app: 'multiverse-card-studio', version: 1, project: p }) };
+  return files;
+}
+$('#btnShare').onclick = () => {
+  $('#shToken').value = tokenGet();
+  $('#shOut').hidden = true;
+  $('#dlgShare').showModal();
+};
+$('#shForget').onclick = () => { tokenSet(''); $('#shToken').value = ''; toast('Token removed from this browser.'); };
+$('#shGo').onclick = async () => {
+  const token = $('#shToken').value.trim();
+  if (!token) return toast('Paste your GitHub token first (see the steps above).');
+  if (!S.proj) return;
+  tokenSet(token);
+  toast('Uploading…');
+  try {
+    await saveNow();
+    const files = await shareFiles(S.proj);
+    const r = await fetch('https://api.github.com/gists', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'Multiverse Card Studio: ' + S.proj.name, public: false, files }),
+    });
+    if (!r.ok) throw new Error(r.status === 401 ? 'GitHub did not accept that token.' : r.status === 422 ? 'GitHub refused the upload (too big?).' : 'GitHub said ' + r.status + '.');
+    const j = await r.json();
+    const link = location.origin + location.pathname + '#gist=' + j.id;
+    $('#shLink').value = link; $('#shOut').hidden = false;
+    try { await navigator.clipboard.writeText(link); toast('Link copied.'); } catch (e) { toast('Link ready.'); }
+  } catch (e) { toast(e.message || 'Upload failed.'); }
+};
+$('#shCopy').onclick = async () => { try { await navigator.clipboard.writeText($('#shLink').value); toast('Link copied.'); } catch (e) { $('#shLink').select(); } };
+async function gistText(file) {
+  if (!file.truncated) return file.content;
+  const r = await fetch(file.raw_url); if (!r.ok) throw new Error('Could not read a shared file.');
+  return await r.text();
+}
+async function openSharedLink() {
+  const m = /[#&]gist=([0-9a-f]{8,40})/i.exec(location.hash);
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    toast('Opening the shared project…');
+    const r = await fetch('https://api.github.com/gists/' + m[1], { headers: { Accept: 'application/vnd.github+json' } });
+    if (!r.ok) throw new Error(r.status === 404 ? 'That shared link no longer exists.' : 'GitHub said ' + r.status + '.');
+    const g = await r.json();
+    const main = g.files['project.mcs.json'];
+    if (!main) throw new Error('That link is not a Card Studio project.');
+    const j = JSON.parse(await gistText(main));
+    const p = j.project;
+    if (!p || !Array.isArray(p.cards)) throw new Error('That link is not a Card Studio project.');
+    if (!confirm(`Add the shared project "${p.name}" (${p.cards.length} cards) to your projects?`)) return;
+    const cache = new Map();
+    const fill = async a => {
+      if (!a || typeof a !== 'object' || !/^gistfile:/.test(a.src || '')) return;
+      const name = a.src.slice(9);
+      if (!cache.has(name)) cache.set(name, g.files[name] ? await gistText(g.files[name]) : '');
+      a.src = cache.get(name);
+    };
+    for (const c of p.cards) for (const v of Object.values(c.data || {})) {
+      if (v && typeof v === 'object' && 'src' in v) { await fill(v); for (const alt of v.alts || []) await fill(alt); }
+    }
+    p.id = uid(); p.name = p.name + (S.projects.some(q => q.name === p.name) ? ' (shared)' : '');
+    p.cards = p.cards.filter(c => TEMPLATES[c.type]).map(c => ({ ...c, id: uid() }));
+    S.projects.push(p); await DB.put(p); await openProject(p.id); toast('Shared project added.');
+  } catch (e) { toast(e.message || 'Could not open that link.'); }
+}
+window.addEventListener('hashchange', openSharedLink);
+
+// ---------- PDF ----------
+async function buildPdf(cards, copies, paper, lines) {
+  const [pw, ph] = paper === 'a4' ? [595.28, 841.89] : [612, 792];
+  const cw = 180, ch = 252; // 2.5 x 3.5 in
+  const x0 = (pw - 3 * cw) / 2, y0 = Math.max(18, (ph - 3 * ch) / 2);
+  const list = [];
+  for (const c of cards) {
+    const cv = document.createElement('canvas');
+    await renderCard(c, cv, { exporting: true });
+    let out = cv;
+    if (TEMPLATES[c.type].orient === 'h') {
+      out = document.createElement('canvas'); out.width = cv.height; out.height = cv.width;
+      const g = out.getContext('2d'); g.translate(out.width, 0); g.rotate(Math.PI / 2); g.drawImage(cv, 0, 0);
+    }
+    const blob = await new Promise(res => out.toBlob(res, 'image/jpeg', 0.92));
+    if (!blob) continue;
+    const img = { w: out.width, h: out.height, bytes: new Uint8Array(await blob.arrayBuffer()) };
+    const n = copies * cardCopies(c);
+    for (let k = 0; k < n; k++) list.push(img);
+  }
+  const pages = [];
+  for (let i = 0; i < list.length; i += 9) {
+    const items = list.slice(i, i + 9).map((img, j) => ({ img, x: x0 + (j % 3) * cw, y: y0 + Math.floor(j / 3) * ch, w: cw, h: ch }));
+    const ls = [];
+    if (lines) {
+      const rows = Math.ceil(items.length / 3), cols = Math.min(3, items.length);
+      for (let r = 0; r <= rows; r++) ls.push([x0 - 12, y0 + r * ch, x0 + cols * cw + 12, y0 + r * ch]);
+      for (let k = 0; k <= cols; k++) ls.push([x0 + k * cw, y0 - 12, x0 + k * cw, y0 + rows * ch + 12]);
+    }
+    pages.push({ items, lines: ls });
+  }
+  return makePdf(pages, pw, ph);
+}
+$('#prPdf').onclick = async () => {
+  const which = $('#prWhich').value, copies = Math.max(1, Math.min(20, +$('#prCopies').value || 1));
+  const cards = which === 'cur' ? [cur()].filter(Boolean) : S.proj.cards;
+  if (!cards.length) return;
+  $('#dlgPrint').close();
+  toast('Building the PDF…');
+  try { download(await buildPdf(cards, copies, $('#prPaper').value, $('#prLines').checked), slug(S.proj.name) + '-print.pdf'); }
+  catch (e) { console.error(e); toast('PDF failed: an image came from a site that does not allow it.'); }
+};
 
 // ---------- projects ----------
 function buildProjSel() {
@@ -1057,4 +1309,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
   try { last = await DB.getMeta('last'); } catch (e) {}
   await openProject(last && S.projects.some(p => p.id === last.proj) ? last.proj : S.projects[0].id, last && last.card);
   window.addEventListener('beforeunload', () => { saveNow(); });
+  openSharedLink();
 })();
