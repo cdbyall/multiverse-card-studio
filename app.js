@@ -687,7 +687,7 @@ function openImportType() {
   $('#dlgImportType').showModal();
 }
 const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-const ALIASES = { gametext: 'gameText', text: 'gameText', image: 'art', imageurl: 'art', innatepowername: 'powerName', powername: 'powerName', innatepowereffect: 'powerText', power: 'powerText', deck: 'name', hero: 'name', featuredissue: 'issue', incapacitatedcaption: 'caption', description: 'title' };
+const ALIASES = { gametext: 'gameText', text: 'gameText', image: 'art', imageurl: 'art', innatepowername: 'powerName', powername: 'powerName', innatepowereffect: 'powerText', power: 'powerText', deck: 'name', hero: 'name', featuredissue: 'issue', incapacitatedcaption: 'caption', description: 'title', flavortext: 'flavor', collectionflavortext: 'collFlavor', collectionissues: 'issues' };
 $('#impGo').onclick = () => {
   const type = $('#impType').value, tpl = TEMPLATES[type];
   const fmap = new Map();
@@ -697,10 +697,11 @@ $('#impGo').onclick = () => {
     const data = defaultData(type);
     for (const f of tpl.fields) if (f.type === 'area' || f.type === 'text') data[f.key] = '';
     const opts = [];
+    const direct = new Set(Object.keys(row).map(k => fmap.get(norm(k))).filter(Boolean).map(f => f.key));
     for (const [k, v] of Object.entries(row)) {
       const nk = norm(k);
       if (/^incapacitatedoption\d$/.test(nk)) { if (v && v !== '-') opts.push(v); continue; }
-      const f = fmap.get(nk) || tpl.fields.find(x => x.key === ALIASES[nk]);
+      const f = fmap.get(nk) || (direct.has(ALIASES[nk]) ? null : tpl.fields.find(x => x.key === ALIASES[nk]));
       if (!f) continue;
       if (f.type === 'image') { if (/^(https?:|data:)/.test(v)) data[f.key] = { src: v, x: (+row.ImageX || 0) * 3, y: (+row.ImageY || 0) * 3, zoom: (+row.ImageZoom || 100) / 100 }; }
       else if (f.type === 'toggle') data[f.key] = !!v && v !== '0' && v.toLowerCase() !== 'false';
@@ -794,7 +795,8 @@ $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
 // Builds TTS deck sheets (up to 10 x 7 cards per image) and a Saved Object file that
 // spawns a bag with every deck. Character cards get their own back (Unique Backs);
 // deck cards share the project's deck back of the same kind.
-const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar' };
+const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', eventFront: 'eventBack', criticalFront: 'villainChar' };
+const TTS_CHAR_NAMES = { Hero: 'Hero character cards', Villain: 'Villain character cards', Events: 'Event cards' };
 const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack' };
 const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack']);
 
@@ -808,9 +810,9 @@ function ttsGroups(cards) {
       const nx = cards[i + 1];
       let back = null;
       if (nx && nx.type === pt) { back = nx; i++; }
-      const o = TEMPLATES[c.type].orient;
-      if (!chars.has(o)) chars.set(o, { name: o === 'h' ? 'Villain character cards' : 'Hero character cards', faces: [], backs: [], unique: true, orient: o });
-      chars.get(o).faces.push(c); chars.get(o).backs.push(back);
+      const o = TEMPLATES[c.type].orient, grp = TEMPLATES[c.type].group, gk = grp + '|' + o;
+      if (!chars.has(gk)) chars.set(gk, { name: TTS_CHAR_NAMES[grp] || grp + ' cards', faces: [], backs: [], unique: true, orient: o });
+      chars.get(gk).faces.push(c); chars.get(gk).backs.push(back);
       continue;
     }
     if (!decks.has(c.type)) decks.set(c.type, []);
@@ -853,7 +855,12 @@ async function ttsSheet(list, W, H, blankLabel) {
   const tmp = document.createElement('canvas');
   for (let i = 0; i < n; i++) {
     const x = (i % cols) * cw, y = Math.floor(i / cols) * ch;
-    if (list[i]) { await renderCard(list[i], tmp, { scale: k, exporting: true }); g.drawImage(tmp, x, y, cw, ch); }
+    if (list[i]) {
+      await renderCard(list[i], tmp, { scale: k, exporting: true });
+      if ((TEMPLATES[list[i].type].orient === 'h') !== (W > H)) {
+        g.save(); g.translate(x + cw / 2, y + ch / 2); g.rotate(Math.PI / 2); g.drawImage(tmp, -ch / 2, -cw / 2, ch, cw); g.restore();
+      } else g.drawImage(tmp, x, y, cw, ch);
+    }
     else g.drawImage(genericBack(W, H, blankLabel || ''), x, y, cw, ch);
   }
   return { canvas: sheet, cols, rows };
@@ -1037,7 +1044,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 (async function start() {
   try {
     await Promise.race([new Promise(r => setTimeout(r, 5000)), Promise.all([
-      document.fonts.load(`40px Bangers`), document.fonts.load(`20px Boogaloo`), document.fonts.load(`20px "Noto Sans"`),
+      document.fonts.load(`40px Bangers`), document.fonts.load(`20px Boogaloo`), document.fonts.load(`20px "Noto Sans"`), document.fonts.load(`italic 20px "Noto Sans"`),
       document.fonts.load(`700 20px "Noto Sans"`), document.fonts.load(`700 20px "Work Sans"`), document.fonts.load(`500 20px "Work Sans"`),
       document.fonts.load(`800 20px "Work Sans"`), document.fonts.load(`italic 700 20px "Comic Neue"`),
       document.fonts.load(`20px "Avengeance Mightiest Avenger"`), document.fonts.load(`20px "Unmasked BB"`), document.fonts.load(`italic 20px "Unmasked BB"`), document.fonts.load(`700 20px "Unmasked BB"`),

@@ -679,6 +679,138 @@ function backPanels(R, panels, tint, filter) {
   }
 }
 
+// ---------- Events ----------
+function paperBg(R, color) {
+  const { ctx, W, H } = R;
+  ctx.fillStyle = color || '#eadfc4'; ctx.fillRect(0, 0, W, H);
+  const rnd = mulberry32(R.seed);
+  ctx.save();
+  for (let i = 0; i < 1400; i++) {
+    const x = rnd() * W, y = rnd() * H, r = 0.6 + rnd() * 1.8;
+    ctx.fillStyle = rnd() < 0.5 ? 'rgba(90,60,25,.10)' : 'rgba(255,255,255,.22)';
+    ctx.fillRect(x, y, r, r);
+  }
+  const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(80,50,20,.18)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// Yellow comic caption box. Paragraphs split on blank lines. Fits the text;
+// with o.fit the box shrinks to the text. Returns the box drawn.
+function captionBox(ctx, text, r, o = {}) {
+  text = String(text || '').trim();
+  if (!text) return { ...r, h: 0 };
+  const paras = text.toUpperCase().split(/\n\s*\n/).map(p => p.replace(/\s*\n\s*/g, ' '));
+  const pad = o.pad || 14, w = r.w - pad * 2;
+  let size = o.size || 24, lines, th;
+  for (; size > 9; size -= 0.5) {
+    ctx.font = `${size}px ${TF.quote}`;
+    lines = []; paras.forEach((p, i) => { if (i) lines.push(null); lines.push(...wrapPlain(ctx, p, w)); });
+    th = lines.reduce((a, l) => a + (l === null ? size * 0.55 : size * 1.18), 0);
+    if (th <= r.h - pad * 2) break;
+  }
+  const b = o.fit ? { ...r, h: Math.min(r.h, th + pad * 2 + 2) } : { ...r };
+  box(ctx, b, { fill: o.fill || '#ffe14d', lw: 4, shadow: false });
+  ctx.save();
+  ctx.font = `${size}px ${TF.quote}`; ctx.fillStyle = INK; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  let y = b.y + pad + Math.max(0, (b.h - pad * 2 - th) / 2);
+  for (const l of lines) {
+    if (l === null) { y += size * 0.55; continue; }
+    ctx.fillText(l, b.x + pad, y + size * 0.08); y += size * 1.18;
+  }
+  ctx.restore();
+  return b;
+}
+
+// The red rubber stamp with the collection limit.
+function limitStamp(ctx, cx, cy, r, n, rot) {
+  n = String(n == null ? '' : n).trim();
+  if (!n) return;
+  const red = '#c8202c';
+  ctx.save();
+  ctx.translate(cx, cy); ctx.rotate(rot == null ? -0.18 : rot);
+  ctx.globalAlpha = 0.92;
+  ctx.beginPath();
+  for (let i = 0; i < 36; i++) { const a = i * Math.PI / 18, rr = i % 2 ? r : r * 1.07; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+  ctx.closePath(); ctx.fillStyle = red; ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.84, 0, Math.PI * 2); ctx.fillStyle = '#f6efe0'; ctx.fill();
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2); ctx.lineWidth = r * 0.04; ctx.strokeStyle = red; ctx.stroke();
+  ctx.fillStyle = red; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  fitFont(ctx, n, TF.phase, r * 0.9, r * 0.92);
+  ctx.fillText(n, 0, -r * 0.12);
+  // "COLLECTION LIMIT" bent along the bottom
+  const word = 'COLLECTION LIMIT', fs = r * 0.15;
+  ctx.font = `${fs}px ${TF.title}`;
+  const rad = r * 0.6, step = fs * 0.62 / rad, a0 = Math.PI / 2 + step * (word.length - 1) / 2;
+  for (let i = 0; i < word.length; i++) {
+    const a = a0 - i * step;
+    ctx.save(); ctx.translate(Math.cos(a) * rad, Math.sin(a) * rad); ctx.rotate(a - Math.PI / 2);
+    ctx.fillText(word[i], 0, 0); ctx.restore();
+  }
+  ctx.restore();
+}
+
+// A comic cover lying on the card, slightly turned, with a drop shadow.
+function tiltedCover(R, rect, deg) {
+  const { ctx } = R;
+  const a = (deg || 0) * Math.PI / 180;
+  ctx.save();
+  ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2); ctx.rotate(a);
+  const r = { x: -rect.w / 2, y: -rect.h / 2, w: rect.w, h: rect.h };
+  ctx.save(); ctx.shadowColor = 'rgba(40,25,10,.55)'; ctx.shadowBlur = 16; ctx.shadowOffsetX = 6; ctx.shadowOffsetY = 8;
+  ctx.fillStyle = '#fff'; ctx.fillRect(r.x, r.y, r.w, r.h); ctx.restore();
+  const n = R.hits.length;
+  drawCover(R, r);
+  // hit regions are kept in card space (close enough for a small turn)
+  for (let i = n; i < R.hits.length; i++) { const h = R.hits[i].rect; R.hits[i].rect = { ...h, x: h.x + rect.x + rect.w / 2, y: h.y + rect.y + rect.h / 2 }; }
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+}
+
+function eventHeader(ctx, left, right, y, W, color) {
+  let rw = 0;
+  if (right) { ctx.save(); ctx.font = `34px ${TF.phase}`; rw = Math.min(250, ctx.measureText(String(right).toUpperCase()).width + 10); ctx.restore(); }
+  comicLabel(ctx, left, 34, y, 40, { maxW: W - 70 - (rw ? rw + 24 : 0), color: color || INK });
+  if (right) comicLabel(ctx, right, W - 34, y, 34, { align: 'right', maxW: 250 });
+  ctx.save(); ctx.fillStyle = INK; ctx.fillRect(30, y + 10, W - 60, 3); ctx.restore();
+}
+
+function eventFrontDraw(R, critical) {
+  const { ctx, d, W, H } = R;
+  paperBg(R, d.paperColor);
+  let y = 66;
+  if (critical) {
+    ctx.save();
+    ctx.fillStyle = d.headerColor || '#d62828'; ctx.fillRect(0, 0, W, 70);
+    ctx.fillStyle = INK; ctx.fillRect(0, 70, W, 4);
+    ctx.restore();
+    comicLabel(ctx, d.banner || 'Critical Event', W / 2, 54, 44, { align: 'center', stroke: false, maxW: W - 80 });
+    y = 128;
+    eventHeader(ctx, d.title, d.date, y, W, d.headerColor || '#d62828');
+  } else {
+    eventHeader(ctx, 'Event: ' + String(d.title || ''), d.date, y, W);
+  }
+  const cap = captionBox(ctx, d.flavor, { x: 34, y: y + 26, w: W - 68, h: critical ? 250 : 280 }, { fit: true, size: 28, fill: d.captionColor });
+  const villain = String(d.villain || '').trim(), effT = String(d.effectTitle || '').trim(), effX = String(d.effectText || '').trim();
+  // bottom block (normal Events): villain tag, effect title tag, effect text box
+  let bottom = H - 30;
+  if (!critical && (villain || effT || effX)) {
+    const lay = effX ? fitText(ctx, parseGameText(effX, { terms: terms(d) }), W - 68 - 32, 150, 24 * ((d.textSize || 100) / 100), 11, {}) : null;
+    const eh = effX ? Math.ceil(lay.height) + 24 : 0;
+    const eb = { x: 34, y: H - 30 - eh, w: W - 68, h: eh };
+    let ty = eb.y - (effX ? 4 : 0);
+    if (effT) { ty -= 40; tag(ctx, effT, 34, ty, 38, { maxW: 600, fill: '#ffe14d' }); }
+    if (villain) { ty -= 42; tag(ctx, 'Villain: ' + villain, 34, ty, 38, { maxW: 600, fill: '#ffe14d' }); }
+    if (effX) { box(ctx, eb, { lw: 3, shadow: false }); gameText(R, effX, inset(eb, 16, 12), { base: 24, min: 11 }); }
+    bottom = ty - 18;
+  }
+  const ct = (cap.h ? cap.y + cap.h : y) + 24;
+  const ch = Math.max(200, bottom - ct), cw = Math.min(W - 200, ch * 0.66);
+  tiltedCover(R, { x: 70, y: ct, w: cw, h: ch }, d.tilt);
+  limitStamp(ctx, Math.min(W - 92, 70 + cw + 70), ct + ch - 70, 66, d.collectionLimit);
+}
+
 // ---------- field helpers ----------
 const IMG = () => ({ src: '', x: 0, y: 0, zoom: 1 });
 const F = {
@@ -1036,6 +1168,97 @@ const TEMPLATES = {
       artistCredit(R, d.artist, W, H);
     },
   },
+  eventFront: {
+    name: 'Event (front)', group: 'Events', orient: 'v', badge: 'NEW',
+    fields: [
+      F.sec('Event'), F.text('title', 'Title', 'Night of the Long Fall'), F.text('date', 'Date', 'October 1984'),
+      F.area('flavor', 'Flavor text', 'Baron Example has finally found a way to pull the moon out of the sky.\n\nThe heroes have one night to stop him before the tides swallow the city.', { rows: 5, help: 'Lettered in caps. A blank line starts a new paragraph.' }),
+      F.num('collectionLimit', 'Collection limit', '1'),
+      F.sec('Effect'), F.text('villain', 'Villain', 'Baron Example'), F.text('effectTitle', 'Effect title', 'Falling Skies'),
+      F.area('effectText', 'Effect game text', 'At the end of the Villain turn, Baron Example deals each Hero target 1 projectile damage.', { rows: 3, help: GT_HELP, chips: true }),
+      ...COVER_FIELDS.map(f => f.key === 'blurb' ? { ...f, def: 'The night the sky fell!' } : f.key === 'age' ? { ...f, def: 30 } : f.key === 'era' ? { ...f, def: 'bronze' } : f),
+      F.sec('Style', { closed: true }), F.color('paperColor', 'Paper color', '#eadfc4'), F.color('captionColor', 'Caption color', '#ffe14d'),
+      F.range('tilt', 'Cover turn (degrees)', -2, -8, 8, 0.5),
+      F.range('textSize', 'Text size (%)', 100, 60, 140), F.tog('hiPhase', 'Higher-contrast phase labels'), F.text('boldTerms', 'Extra bolded terms'),
+    ],
+    draw(R) { eventFrontDraw(R, false); },
+  },
+  eventBack: {
+    name: 'Event (back, collection)', group: 'Events', orient: 'h', badge: 'NEW',
+    fields: [
+      F.sec('Collection'), F.text('title', 'Event title (for your list)', 'Night of the Long Fall'),
+      F.area('collFlavor', 'Collection flavor text', 'The heroes chased Baron Example to his moon-anchor high above the bay.\n\nWith seconds to spare, they cut the chain and the moon drifted home. The city never knew how close it came.', { rows: 6, help: 'Lettered in caps. A blank line starts a new paragraph.' }),
+      F.area('issues', 'Collection issues (one per line)', 'Mighty Tales #40\nBaron Example #3\nCity of Tides One-Shot\nMighty Tales Annual #2', { rows: 5 }),
+      F.sec('Rewards'),
+      F.area('rewardIntro', 'Reward rules', 'One Hero may use one of these two abilities at any time during their turn. Once either ability has been used, remove this card from the game.', { rows: 3 }),
+      F.text('r1Title', 'Reward 1 title', 'Lunar Insight'),
+      F.area('r1Flavor', 'Reward 1 flavor text', 'Up close, the moon had a lot to say.', { rows: 2 }),
+      F.area('r1Text', 'Reward 1 game text', 'Reveal the top 3 cards of 1 deck. Replace them in any order.', { rows: 2, help: GT_HELP, chips: true }),
+      F.text('r2Title', 'Reward 2 title', 'Tide Turner'),
+      F.area('r2Flavor', 'Reward 2 flavor text', 'The sea remembers who saved it.', { rows: 2 }),
+      F.area('r2Text', 'Reward 2 game text', 'Destroy up to 2 Environment cards.', { rows: 2, help: GT_HELP, chips: true }),
+      ...COVER_FIELDS.map(f => f.key === 'blurb' ? { ...f, def: 'Annual special!' } : f.key === 'coverBg' ? { ...f, def: '#4a8fd6' } : f.key === 'comicTitle' ? { ...f, def: 'Mighty Tales Annual' } : f.key === 'issueNo' ? { ...f, def: '2' } : f.key === 'age' ? { ...f, def: 30 } : f.key === 'era' ? { ...f, def: 'bronze' } : f),
+      F.sec('Style', { closed: true }), F.color('paperColor', 'Paper color', '#eadfc4'), F.color('captionColor', 'Caption color', '#ffe14d'),
+      F.range('tilt', 'Cover turn (degrees)', 0, -8, 8, 0.5),
+      F.range('textSize', 'Text size (%)', 100, 60, 140), F.tog('hiPhase', 'Higher-contrast phase labels'), F.text('boldTerms', 'Extra bolded terms'),
+    ],
+    draw(R) {
+      const { ctx, d, W, H } = R;
+      paperBg(R, d.paperColor);
+      comicLabel(ctx, 'Collection', 34, 60, 44, { stroke: INK, color: '#fff' });
+      const issues = String(d.issues || '').split('\n').map(s => s.trim()).filter(Boolean);
+      // cover in the middle, issue list under it
+      const cw = 360, cx = 352;
+      const isz = 21, ih = issues.length ? issues.length * isz * 1.2 + 14 : 0;
+      const chh = Math.min(H - 60 - ih, cw / 0.66);
+      tiltedCover(R, { x: cx, y: 30, w: cw, h: chh }, d.tilt);
+      if (issues.length) {
+        ctx.save(); ctx.fillStyle = '#2a2016'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        issues.forEach((l, i) => { fitFont(ctx, l, TF.body, cw + 20, isz, 'italic'); ctx.fillText(l, cx + cw / 2, 30 + chh + 14 + i * isz * 1.2); });
+        ctx.restore();
+      }
+      captionBox(ctx, d.collFlavor, { x: 30, y: 78, w: cx - 50, h: H - 108 }, { size: 30, pad: 16, fill: d.captionColor });
+      // rewards column
+      const rx = cx + cw + 22, rw = W - 28 - rx;
+      const s = (d.textSize || 100) / 100;
+      const intro = String(d.rewardIntro || '').trim();
+      let ry = 30;
+      if (intro) {
+        const lay = drawGameTextBox(ctx, '_' + intro.replace(/\n/g, ' ') + '_', { x: rx, y: ry, w: rw, h: 170 }, { base: 22 * s, min: 11, terms: terms(d) });
+        ry += (lay ? lay.height : 0) + 16;
+      }
+      const rb = { x: rx, y: ry, w: rw, h: H - 30 - ry };
+      box(ctx, rb, { lw: 3, shadow: false });
+      const one = (t, f, g) => {
+        const parts = [];
+        if (String(t || '').trim()) parts.push('**' + String(t).trim().toUpperCase() + '**');
+        String(f || '').split('\n').map(x => x.trim()).filter(Boolean).forEach(x => parts.push('_' + x + '_'));
+        if (String(g || '').trim()) parts.push(String(g).trim());
+        return parts.join('\n');
+      };
+      const mid = rb.y + rb.h / 2;
+      gameText(R, one(d.r1Title, d.r1Flavor, d.r1Text), { x: rb.x + 14, y: rb.y + 12, w: rb.w - 28, h: mid - 26 - rb.y - 12 }, { base: 22, min: 10 });
+      gameText(R, one(d.r2Title, d.r2Flavor, d.r2Text), { x: rb.x + 14, y: mid + 26, w: rb.w - 28, h: rb.y + rb.h - 12 - mid - 26 }, { base: 22, min: 10 });
+      ctx.save(); ctx.font = `30px ${TF.title}`;
+      const ow = ctx.measureText('- OR -').width + 28;
+      ctx.restore();
+      tag(ctx, '- OR -', rb.x + (rb.w - ow) / 2, mid - 20, 40, { fill: '#ffe14d' });
+    },
+  },
+  criticalFront: {
+    name: 'Critical Event (front)', group: 'Events', orient: 'v', badge: 'NEW',
+    fields: [
+      F.sec('Critical Event'), F.text('title', 'Title', 'Baron, Ascendant'), F.text('date', 'Date', 'March 1997'),
+      F.area('flavor', 'Flavor text', 'Baron Example merged with his doomsday engine. Now the city has a new skyline, and it is wearing a cape.', { rows: 5, help: 'Lettered in caps. A blank line starts a new paragraph.' }),
+      F.num('collectionLimit', 'Collection limit', '2'),
+      F.text('banner', 'Top banner', 'Critical Event'),
+      ...COVER_FIELDS.map(f => f.key === 'blurb' ? { ...f, def: 'One-shot special!' } : f.key === 'coverBg' ? { ...f, def: '#5aa04a' } : f.key === 'comicTitle' ? { ...f, def: 'Baron Ascendant' } : f.key === 'issueNo' ? { ...f, def: '1' } : f.key === 'age' ? { ...f, def: 15 } : f.key === 'era' ? { ...f, def: 'modern' } : f),
+      F.sec('Style', { closed: true }), F.color('headerColor', 'Banner color', '#d62828'),
+      F.color('paperColor', 'Paper color', '#eadfc4'), F.color('captionColor', 'Caption color', '#ffe14d'),
+      F.range('tilt', 'Cover turn (degrees)', 0, -8, 8, 0.5),
+    ],
+    draw(R) { eventFrontDraw(R, true); },
+  },
 };
 
 for (const t of Object.values(TEMPLATES)) t.fields.push(F.sec('Print', { closed: true }), F.tog('border', 'Black card border', false, { help: 'Like printed cards. Good for Tabletop Simulator too.' }));
@@ -1046,6 +1269,7 @@ const PICKER = [
   ['Villain', ['villainDeck', 'villainBack', 'villainChar', ['villainChar', 'villainChar']]],
   ['Environment', ['envDeck', 'envBack']],
   ['Principles', ['principle']],
+  ['Events', ['eventFront', 'eventBack', 'criticalFront', ['eventFront', 'eventBack'], ['criticalFront', 'villainChar']]],
 ];
 
 function cardSize(type) { return TEMPLATES[type].orient === 'h' ? [1050, 750] : [750, 1050]; }
