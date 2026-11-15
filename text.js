@@ -79,9 +79,9 @@ function parseGameText(src, opts = {}) {
   return blocks;
 }
 
-function runFont(r, size) {
-  if (r.lab) return `700 ${size}px ${TF.label}`;
-  return `${r.i ? 'italic ' : ''}${r.b ? '700' : '400'} ${size}px ${TF.body}`;
+function runFont(r, size, fam) {
+  if (r.lab) return `700 ${size}px ${fam || TF.label}`;
+  return `${r.i ? 'italic ' : ''}${r.b ? '700' : '400'} ${size}px ${fam || TF.body}`;
 }
 
 function layoutText(ctx, blocks, width, size, o = {}) {
@@ -118,7 +118,7 @@ function layoutText(ctx, blocks, width, size, o = {}) {
         line.w += w;
         continue;
       }
-      const font = runFont(r, size);
+      const font = runFont(r, size, o.family);
       ctx.font = font;
       for (const piece of r.s.split(/(\s+)/)) {
         if (!piece) continue;
@@ -290,6 +290,7 @@ function drawLaid(ctx, lay, x, y, o = {}) {
 
 // Draws game text into a rect, shrinking the font until it fits.
 function drawGameTextBox(ctx, text, rect, o = {}) {
+  if (o.caps) text = String(text || '').toUpperCase();
   const blocks = parseGameText(text, o);
   if (!blocks.length) return null;
   const lay = fitText(ctx, blocks, rect.w, rect.h, o.base || 30, o.min || 13, o);

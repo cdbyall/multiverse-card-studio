@@ -1534,6 +1534,7 @@ function cardSize(type) { const t = TEMPLATES[type]; return t.size || (t.orient 
 // Printed size in inches, from the sleeve sizes: standard 63x88 mm (printed 2.5x3.5 in), character
 // cards 70x120 mm, villain character and event cards 88x130 mm, dividers about 3 in square.
 function cardInches(type) {
+  if (TEMPLATES[type].inches) return TEMPLATES[type].inches;
   const [w, h] = cardSize(type), r = w / h;
   if (r > 0.95 && r < 1.05) return [3, 3];
   if (r < 0.65) return [2.76, 4.72];
@@ -1562,7 +1563,7 @@ function defaultData(type) { return withDefaults(type, {}); }
 
 function cardLabel(card) {
   const d = card.data || {};
-  if (/^(villainChar|teamVillain|heroChar|faFront|faBack)$/.test(card.type)) return d.name || d.title || TEMPLATES[card.type].name;
+  if (/^(villainChar|teamVillain|heroChar|faFront|faBack)$/.test(card.type) || TEMPLATES[card.type].labelName) return d.name || d.title || TEMPLATES[card.type].name;
   return d.title || d.name || d.caption || TEMPLATES[card.type].name;
 }
 

@@ -195,7 +195,7 @@ function refreshListItem(c) {
   updateDeckSum();
 }
 // Card counts per deck (copies included). Hero decks are 40 cards.
-const DECK_SIZES = { heroDeck: ['Hero deck', 40], villainDeck: ['Villain deck', 0], envDeck: ['Environment deck', 0], eventFront: ['Events', 0], criticalFront: ['Critical events', 0], principle: ['Principles', 0] };
+const DECK_SIZES = { eeHeroDeck: ['Hero deck (Enhanced)', 40], oblDeck: ['OblivAeon deck', 0], oblAeon: ['Aeon Men', 0], heroDeck: ['Hero deck', 40], villainDeck: ['Villain deck', 0], envDeck: ['Environment deck', 0], eventFront: ['Events', 0], criticalFront: ['Critical events', 0], principle: ['Principles', 0] };
 function updateDeckSum() {
   const box = $('#deckSum'); if (!box) return;
   box.innerHTML = '';
@@ -700,7 +700,7 @@ function addCards(types) {
   if (made.length === 2 && made[0].type === made[1].type && /^(villainChar|teamVillain)$/.test(made[0].type)) {
     made[1].data.title = made[0].type === 'teamVillain' ? 'Incapacitated' : 'Flipped Side'; made[1].data.setup = ''; made[1].data.hp = '';
     if (made[0].type === 'teamVillain') made[1].data.keywords = '';
-  }
+  } else if (made.length === 2 && made[0].type === made[1].type && TEMPLATES[made[0].type].flipDefaults) Object.assign(made[1].data, TEMPLATES[made[0].type].flipDefaults);
   if (made.length === 2) { const pid = uid(); made[0].pair = pid; made[1].pair = pid; }
   let pos = at < 0 ? S.proj.cards.length : at + 1;
   const sel = S.proj.cards[at];
@@ -963,7 +963,7 @@ async function buildPicker() {
     for (const it of items) {
       const types = Array.isArray(it) ? it : [it];
       const label = Array.isArray(it)
-        ? (it[0] === it[1] ? TEMPLATES[it[0]].name.replace(/ card$/i, '') + ' (front + flipped)' : TEMPLATES[it[0]].name.replace(/ \(front\)| card$/i, '') + ' (front + back)')
+        ? (it[0] === it[1] ? TEMPLATES[it[0]].name.replace(/ \([^)]*\)$| card$/i, '') + ' (front + flipped)' : TEMPLATES[it[0]].name.replace(/ \([^)]*\)$| card$/i, '') + ' (front + back)')
         : TEMPLATES[it].name;
       const cvs = types.map(() => el('canvas'));
       const wide = types.length > 1 || TEMPLATES[types[0]].orient === 'h';
@@ -974,7 +974,8 @@ async function buildPicker() {
       row.append(btn);
       types.forEach((t, i) => {
         const demo = newCard(t);
-        if (types.length === 2 && types[0] === types[1] && i === 1) { demo.data.title = t === 'teamVillain' ? 'Incapacitated' : 'Flipped Side'; demo.data.hp = ''; if (t === 'teamVillain') demo.data.keywords = ''; }
+        if (types.length === 2 && types[0] === types[1] && i === 1 && TEMPLATES[t].flipDefaults) Object.assign(demo.data, TEMPLATES[t].flipDefaults);
+        else if (types.length === 2 && types[0] === types[1] && i === 1) { demo.data.title = t === 'teamVillain' ? 'Incapacitated' : 'Flipped Side'; demo.data.hp = ''; if (t === 'teamVillain') demo.data.keywords = ''; }
         renderCard(demo, cvs[i], { scale: 0.17, exporting: true });
       });
     }
@@ -988,12 +989,13 @@ $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
 // Builds TTS deck sheets (up to 10 x 7 cards per image) and a Saved Object file that
 // spawns a bag with every deck. Character cards get their own back (Unique Backs);
 // deck cards share the project's deck back of the same kind.
-const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', teamVillain: 'teamVillain', eventFront: 'eventBack', criticalFront: 'villainChar' };
-const TTS_DECK_NAMES = { heroDeck: 'Hero deck', villainDeck: 'Villain deck', envDeck: 'Environment deck', principle: 'Principles deck' };
+const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', teamVillain: 'teamVillain', eventFront: 'eventBack', criticalFront: 'villainChar',
+  eeHeroChar: 'eeHeroCharBack', eeVillainChar: 'eeVillainChar', eeVillainInstr: 'eeVillainInstr', eeTeamVillain: 'eeTeamVillain', oblBooklet: 'oblBooklet', oblScion: 'oblScion', oblMission: 'oblReward', oblShield: 'oblShield' };
+const TTS_DECK_NAMES = { heroDeck: 'Hero deck', villainDeck: 'Villain deck', envDeck: 'Environment deck', principle: 'Principles deck', eeHeroDeck: 'Hero deck', eeVillainDeck: 'Villain deck', eeEnvDeck: 'Environment deck', oblDeck: 'OblivAeon deck', oblAeon: 'Aeon Men deck' };
 const TTS_CHAR_NAMES = { Hero: 'Hero character cards', Villain: 'Villain character cards', Events: 'Event cards' };
-const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack', principle: 'principleBack' };
+const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack', principle: 'principleBack', eeHeroDeck: 'eeHeroBack', eeVillainDeck: 'eeVillainBack', eeEnvDeck: 'eeEnvBack', oblDeck: 'oblDeckBack', oblAeon: 'oblAeonBack' };
 const NO_TTS_TYPES = new Set(['dividerFront', 'dividerBack']);
-const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack', 'principleBack']);
+const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack', 'principleBack', 'eeHeroBack', 'eeVillainBack', 'eeEnvBack', 'oblDeckBack', 'oblAeonBack']);
 
 function ttsGroups(cards) {
   const chars = new Map(), decks = new Map();
@@ -1006,8 +1008,8 @@ function ttsGroups(cards) {
       const j = pairOf(cards, i);
       let back = null;
       if (j >= 0) { back = cards[j]; used.add(j); }
-      const o = TEMPLATES[c.type].orient, grp = TEMPLATES[c.type].group, gk = grp + '|' + o;
-      if (!chars.has(gk)) chars.set(gk, { name: grp === 'Villain' && o === 'v' ? 'Team villain cards' : TTS_CHAR_NAMES[grp] || grp + ' cards', faces: [], backs: [], unique: true, orient: o });
+      const o = TEMPLATES[c.type].orient, grp = TEMPLATES[c.type].group, gk = grp + '|' + o + '|' + cardSize(c.type).join('x') + (/^(ee|obl)/.test(c.type) ? '|' + c.type : '');
+      if (!chars.has(gk)) chars.set(gk, { name: grp === 'Villain' && o === 'v' ? 'Team villain cards' : TTS_CHAR_NAMES[grp] || TEMPLATES[c.type].ttsName || (/^(ee|obl)/.test(c.type) ? TEMPLATES[c.type].name.replace(/ \(.*\)$/, '') + 's' : grp + ' cards'), faces: [], backs: [], unique: true, orient: o });
       chars.get(gk).faces.push(c); chars.get(gk).backs.push(back);
       continue;
     }
@@ -1018,7 +1020,7 @@ function ttsGroups(cards) {
   const groups = [...chars.values()];
   for (const [t, list] of decks) {
     const bt = TTS_BACK_FOR[t];
-    groups.push({ name: TTS_DECK_NAMES[t] || TEMPLATES[t].name, faces: list, back: bt ? cards.find(c => c.type === bt) || null : null, unique: false, orient: TEMPLATES[t].orient });
+    groups.push({ name: TTS_DECK_NAMES[t] || TEMPLATES[t].name.replace(/ \(.*\)$/, ''), faces: list, back: bt ? cards.find(c => c.type === bt) || null : null, unique: false, orient: TEMPLATES[t].orient });
   }
   // TTS holds at most 69 cards per sheet (the 70th slot is the hidden face)
   const out = [];
