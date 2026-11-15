@@ -99,6 +99,16 @@ input[type=color] { width: 44px; height: 30px; padding: 0; border: 1px solid var
 .icRow { display: flex; align-items: center; gap: 8px; }
 .icRow img { width: 36px; height: 36px; object-fit: contain; background: #fff; border-radius: 6px; }
 .icRow input { flex: 1; }
+.paList { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 10px 14px 14px; max-height: 64vh; overflow: auto; }
+.paItem { height: 120px; background: #222 center / contain no-repeat; border: 1px solid var(--line); border-radius: 8px; position: relative; padding: 0; cursor: pointer; }
+.paItem span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; background: rgba(0,0,0,.65); color: #fff; padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 0 0 8px 8px; }
+.bgWrap { margin: 0 14px; text-align: center; }
+#dlgBg { overflow-x: hidden; }
+#dlgBg .row { align-items: center; flex-wrap: wrap; }
+#dlgBg .row .grow { display: flex; align-items: center; gap: 8px; min-width: 160px; }
+#bgTol { flex: 1; min-width: 0; }
+#bgCanvas { max-width: 100%; cursor: crosshair; border-radius: 6px; }
+.cardList.drop { outline: 3px dashed #ffc21a; outline-offset: -3px; }
 .dlg::backdrop { background: rgba(0,0,0,.6); }
 .dlgHead { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 16px; position: sticky; top: 0; background: var(--panel); }
 .dlg > p, .dlg > label, .dlg > .row { margin: 10px 14px; display: block; }

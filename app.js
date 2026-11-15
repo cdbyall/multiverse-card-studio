@@ -59,11 +59,11 @@ async function saveNow() {
   try { await DB.put(S.proj); } catch (e) { console.error(e); toast('Could not save: ' + e.message); }
 }
 
-function toast(msg) {
+function toast(msg, ms = 2600) {
   let t = $('#toast');
   if (!t) { t = el('div', { id: 'toast' }); document.body.append(t); Object.assign(t.style, { position: 'fixed', bottom: '40px', left: '50%', transform: 'translateX(-50%)', background: '#ffc21a', color: '#111', padding: '8px 14px', borderRadius: '8px', fontWeight: 700, zIndex: 99, boxShadow: '0 6px 20px rgba(0,0,0,.5)' }); }
   t.textContent = msg; t.style.display = 'block';
-  clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = 'none'; }, 2600);
+  clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = 'none'; }, ms);
 }
 
 // ---------- history ----------
@@ -350,8 +350,10 @@ function imageField(c, f) {
     el('div', { class: 'btns' },
       el('button', { type: 'button', onclick: () => chooseImage(f.key) }, a.src ? 'Replace' : 'Choose…'),
       el('button', { type: 'button', onclick: () => imageFromUrl(f.key) }, 'From URL'),
+      el('button', { type: 'button', title: 'Use a picture another card in this project already has', onclick: () => pickProjectArt(f.key) }, 'From project…'),
       a.src ? el('button', { type: 'button', onclick: () => { const alts = a.alts; c.data[f.key] = { src: '', x: 0, y: 0, zoom: 1, ...(alts && alts.length ? { alts } : {}) }; afterImageChange(); } }, 'Remove') : null,
       a.src ? el('button', { type: 'button', onclick: () => openCrop(f.key) }, 'Crop…') : null,
+      a.src ? el('button', { type: 'button', title: 'Take out a plain background so the picture works as a cut-out', onclick: () => openRemoveBg(f.key) }, 'Remove background…') : null,
       a.src ? el('button', { type: 'button', onclick: async () => { if (await autoFrame(f.key)) afterImageChange(); } }, 'Auto frame') : null,
       a.src ? el('button', { type: 'button', onclick: () => { Object.assign(c.data[f.key], { x: 0, y: 0, zoom: 1 }); afterImageChange(); } }, 'Center') : null,
       a.src ? el('button', { type: 'button', title: 'Keep this picture (and its framing) as a version you can switch back to', onclick: () => keepVersion(c, f.key) }, '+ Version') : null),
@@ -400,9 +402,12 @@ function driveDirect(u) {
   return m ? 'https://lh3.googleusercontent.com/d/' + m[1] : u;
 }
 async function imageFromUrl(key) {
-  let url = prompt('Image URL or Google Drive share link (the file must be shared as "Anyone with the link"):');
+  const url = prompt('Image URL or Google Drive share link (the file must be shared as "Anyone with the link"):');
   if (!url) return;
-  url = driveDirect(url.trim());
+  return imageFromLink(key, url);
+}
+async function imageFromLink(key, url) {
+  url = driveDirect(String(url).trim());
   try {
     let r;
     try { r = await fetch(url, { mode: 'cors' }); }
@@ -476,10 +481,10 @@ function subjectBox(img) {
 }
 
 // Places an image so its subject sits well in its spot on the card.
-async function autoFrame(key) {
-  const c = cur(); const a = c && c.data[key];
+async function autoFrame(key, card, R) {
+  const c = card || cur(); const a = c && c.data[key];
   if (!a || !a.src) return false;
-  const hit = lastR && lastR.hits.find(h => h.key === key);
+  const RR = R || lastR, hit = RR && RR.hits.find(h => h.key === key);
   if (!hit) return false;
   const img = await loadImg(a.src);
   if (!img) return false;
@@ -697,29 +702,193 @@ preview.addEventListener('wheel', e => {
 }, { passive: false });
 
 const wrap = $('#canvasWrap');
-wrap.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); wrap.classList.add('drop'); } });
+wrap.addEventListener('dragover', e => { const ty = [...e.dataTransfer.types]; if (ty.includes('Files') || ty.includes('text/uri-list')) { e.preventDefault(); wrap.classList.add('drop'); } });
 wrap.addEventListener('dragleave', () => wrap.classList.remove('drop'));
 wrap.addEventListener('drop', async e => {
   e.preventDefault(); wrap.classList.remove('drop');
-  const f = [...e.dataTransfer.files].find(f => f.type.startsWith('image/'));
-  if (!f || !cur()) return;
+  const imgs = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
+  if (imgs.length > 1) return bulkArt(imgs);
+  const f = imgs[0];
+  if (!cur()) return;
   const h = hitAt(toCard(e), usable);
   const key = h ? h.key : firstImageKey();
-  if (key) await setImageFromFile(key, f);
+  if (!key) return;
+  if (f) return setImageFromFile(key, f);
+  const html = e.dataTransfer.getData('text/html'), m = /<img[^>]+src="([^"]+)"/i.exec(html || '');
+  const link = (m && m[1].replace(/&amp;/g, '&')) || (e.dataTransfer.getData('text/uri-list') || '').split('\n').find(s => /^https?:/i.test(s.trim()));
+  if (link) await imageFromLink(key, link);
 });
 document.addEventListener('paste', async e => {
   if (/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
   const item = [...(e.clipboardData || {}).items || []].find(i => i.type.startsWith('image/'));
-  if (!item || !cur()) return;
+  const text = !item && e.clipboardData ? e.clipboardData.getData('text/plain').trim() : '';
+  const link = /^https?:\/\/\S+$/i.test(text) && (/\.(png|jpe?g|webp|gif)(\?|#|$)/i.test(text) || /drive\.google\.com|googleusercontent\.com|imgur\.com/i.test(text)) ? text : '';
+  if ((!item && !link) || !cur()) return;
   e.preventDefault();
   const c = cur(), ok = S.lastHit && TEMPLATES[c.type].fields.some(f => f.type === 'image' && f.key === S.lastHit && (!f.showIf || f.showIf(c.data)));
-  await setImageFromFile(ok ? S.lastHit : firstImageKey(), item.getAsFile());
+  const key = ok ? S.lastHit : firstImageKey(); if (!key) return;
+  if (item) await setImageFromFile(key, item.getAsFile()); else await imageFromLink(key, link);
 });
 function firstImageKey() {
   const c = cur();
   const f = c && TEMPLATES[c.type].fields.find(f => f.type === 'image' && (!f.showIf || f.showIf(c.data)));
   return f && f.key;
 }
+
+// ---------- art for many cards at once ----------
+// Each picture goes to the cards whose title (or name) matches its file name: "Mega Punch.png" -> "Mega Punch".
+// A name ending in -fg / cutout goes to the cut-out spot, -bg / background to the background spot.
+// Art a card already had is kept as a version, so nothing is lost.
+const artNorm = s => String(s || '').toLowerCase().replace(/\.[a-z0-9]{2,5}$/, '').replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]+/g, '');
+const ART_HINTS = [[/(?:^|[\s_.-])(fg|foreground|cutout|cut-out)$/i, 'fg'], [/(?:^|[\s_.-])(bg|background|back ?art)$/i, 'bg'], [/(?:^|[\s_.-])logo$/i, 'logo'], [/(?:^|[\s_.-])nemesis$/i, 'nemesis']];
+function imageKeys(c) { return TEMPLATES[c.type].fields.filter(f => f.type === 'image' && (!f.showIf || f.showIf(c.data))).map(f => f.key); }
+function hasAlpha(img) {
+  const cv = document.createElement('canvas'); cv.width = 48; cv.height = 48;
+  const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 48, 48);
+  try { const px = g.getImageData(0, 0, 48, 48).data; let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i] < 200) n++; return n > 48 * 48 * 0.04; } catch (e) { return false; }
+}
+async function placeArt(c, key, src) {
+  const old = c.data[key];
+  const alts = (old && old.alts) ? old.alts.slice() : [];
+  if (old && old.src && !alts.some(v => v.src === old.src)) alts.push(plainArt(old));
+  c.data[key] = { src, x: 0, y: 0, zoom: 1, ...(alts.length ? { alts } : {}) };
+  const cv = document.createElement('canvas');
+  const R = await renderCard(c, cv, { scale: 0.2, exporting: true });
+  await autoFrame(key, c, R);
+}
+async function bulkArt(files) {
+  files = [...files].filter(f => /^image\//.test(f.type || ''));
+  if (!S.proj || !files.length) return;
+  const cards = S.proj.cards.filter(c => imageKeys(c).length);
+  const namesOf = c => [...new Set([c.data.title, c.data.name, cardLabel(c)].map(artNorm).filter(n => n.length >= 2))];
+  let done = 0; const missed = [], doneCards = new Set();
+  toast(`Adding ${files.length} pictures…`, 60000);
+  for (const f of files) {
+    let base = f.name.replace(/\.[a-z0-9]{2,5}$/i, '').trim(), want = null;
+    for (const [re, k] of ART_HINTS) if (re.test(base)) { want = k; base = base.replace(re, ''); }
+    const n = artNorm(base);
+    let hits = cards.filter(c => namesOf(c).includes(n));
+    if (!hits.length) { // file name starts with a card's title ("Mega Punch v2")
+      let best = 0;
+      for (const c of cards) for (const cn of namesOf(c)) if (cn.length >= 4 && n.startsWith(cn) && cn.length >= best) { if (cn.length > best) { hits = []; best = cn.length; } hits.push(c); }
+    }
+    if (!hits.length) { missed.push(f.name); continue; }
+    let src, img;
+    try { src = await fileToDataUrl(f); img = await loadImg(src); } catch (e) { missed.push(f.name); continue; }
+    const alpha = img && hasAlpha(img);
+    for (const c of hits) {
+      const keys = imageKeys(c);
+      const key = (want && keys.includes(want)) ? want : (alpha && keys.includes('fg')) ? 'fg' : keys.find(k => k !== 'logo' && k !== 'nemesis') || keys[0];
+      await placeArt(c, key, src); doneCards.add(c.id); done++;
+    }
+  }
+  buildList(); buildForm(); requestRender(); scheduleSave(); pushHistory(true);
+  const miss = missed.length ? ` No card title matched: ${missed.slice(0, 6).join(', ')}${missed.length > 6 ? ` and ${missed.length - 6} more` : ''}.` : '';
+  toast(`Art added to ${doneCards.size} card${doneCards.size === 1 ? '' : 's'}.${miss}`, missed.length ? 9000 : 3500);
+}
+$('#btnBulkArt').onclick = () => { $('#fileBulk').value = ''; $('#fileBulk').click(); };
+$('#fileBulk').addEventListener('change', e => bulkArt(e.target.files));
+{
+  const list = $('#cardList');
+  list.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); list.classList.add('drop'); } });
+  list.addEventListener('dragleave', () => list.classList.remove('drop'));
+  list.addEventListener('drop', e => { e.preventDefault(); list.classList.remove('drop'); bulkArt(e.dataTransfer.files); });
+}
+
+// ---------- art already in the project ----------
+function projectArt() {
+  const seen = new Map();
+  const add = (a, c) => { if (a && a.src && !seen.has(a.src)) seen.set(a.src, cardLabel(c)); };
+  for (const c of S.proj.cards) for (const v of Object.values(c.data || {})) if (v && typeof v === 'object' && 'src' in v) { add(v, c); for (const alt of v.alts || []) add(alt, c); }
+  return [...seen];
+}
+function pickProjectArt(key) {
+  const c = cur(); if (!c) return;
+  const list = projectArt(), box = $('#paList'); box.innerHTML = '';
+  if (!list.length) box.append(el('p', { class: 'muted' }, 'No pictures in this project yet.'));
+  for (const [src, from] of list) {
+    const t = el('button', { type: 'button', class: 'paItem', title: 'From: ' + from, onclick: async () => {
+      $('#dlgPickArt').close();
+      const alts = c.data[key] && c.data[key].alts;
+      c.data[key] = { src, x: 0, y: 0, zoom: 1, ...(alts && alts.length ? { alts } : {}) };
+      await autoFrame(key); afterImageChange();
+    } }, el('span', {}, from));
+    t.style.backgroundImage = `url("${src}")`;
+    box.append(t);
+  }
+  $('#dlgPickArt').showModal();
+}
+
+// ---------- remove background ----------
+// Clears the color around the edge of the picture (and any spot you click), with a soft 1-pixel edge.
+const bgRm = { key: null, img: null, w: 0, h: 0, px: null, seeds: [], out: null, k: 1 };
+async function openRemoveBg(key) {
+  const c = cur(), a = c && c.data[key]; if (!a || !a.src) return;
+  const img = await loadImg(a.src); if (!img) return;
+  const s = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * s)), h = Math.max(1, Math.round(img.height * s));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, w, h);
+  try { bgRm.px = g.getImageData(0, 0, w, h); } catch (e) { return toast('This picture is from a site that blocks editing it. Download it and choose the file instead.'); }
+  Object.assign(bgRm, { key, img, w, h, seeds: [] });
+  $('#dlgBg').showModal(); bgRun();
+}
+function bgRun() {
+  const { w, h, px } = bgRm, d = px.data, N = w * h, tol = +$('#bgTol').value;
+  const gone = new Uint8Array(N), ref = new Int32Array(N).fill(-1), q = new Int32Array(N); let qh = 0, qt = 0;
+  const dist = (i, j) => Math.abs(d[i * 4] - d[j * 4]) + Math.abs(d[i * 4 + 1] - d[j * 4 + 1]) + Math.abs(d[i * 4 + 2] - d[j * 4 + 2]);
+  const seed = i => { if (gone[i]) return; gone[i] = 1; ref[i] = i; q[qt++] = i; };
+  for (let i = 0; i < N; i++) if (d[i * 4 + 3] < 20) gone[i] = 2; // already see-through
+  if ($('#bgEdge').checked) {
+    for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  }
+  for (const [x, y] of bgRm.seeds) seed(y * w + x);
+  const T = tol * 3;
+  while (qh < qt) {
+    const i = q[qh++], r = ref[i] < 0 ? i : ref[i], x = i % w;
+    const nb = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w];
+    for (const j of nb) {
+      if (j < 0 || j >= N || gone[j] === 1) continue;
+      if (gone[j] === 2 || dist(j, r) <= T) { gone[j] = 1; ref[j] = r; q[qt++] = j; }
+    }
+  }
+  const out = new ImageData(w, h), o = out.data;
+  for (let i = 0; i < N; i++) {
+    o[i * 4] = d[i * 4]; o[i * 4 + 1] = d[i * 4 + 1]; o[i * 4 + 2] = d[i * 4 + 2];
+    if (gone[i]) { o[i * 4 + 3] = 0; continue; }
+    let a = d[i * 4 + 3];
+    const x = i % w;
+    for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+      if (j < 0 || j >= N || gone[j] !== 1) continue;
+      const k = Math.min(1, Math.max(0.15, (dist(i, ref[j]) - T) / (T * 0.6)));
+      a = Math.min(a, Math.round(d[i * 4 + 3] * k));
+    }
+    o[i * 4 + 3] = a;
+  }
+  bgRm.out = out;
+  const cv = $('#bgCanvas'), k = Math.min(1, 640 / w, 460 / h);
+  cv.width = Math.round(w * k); cv.height = Math.round(h * k); bgRm.k = k;
+  const g = cv.getContext('2d');
+  for (let y = 0; y < cv.height; y += 12) for (let x = 0; x < cv.width; x += 12) { g.fillStyle = ((x + y) / 12) % 2 ? '#bbb' : '#eee'; g.fillRect(x, y, 12, 12); }
+  const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h; tmp.getContext('2d').putImageData(out, 0, 0);
+  g.drawImage(tmp, 0, 0, cv.width, cv.height);
+}
+$('#bgTol').oninput = () => { cancelAnimationFrame(bgRm.raf); bgRm.raf = requestAnimationFrame(bgRun); };
+$('#bgEdge').onchange = bgRun;
+$('#bgCanvas').onclick = e => {
+  const r = e.target.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) * (e.target.width / r.width) / bgRm.k), y = Math.floor((e.clientY - r.top) * (e.target.height / r.height) / bgRm.k);
+  if (x >= 0 && y >= 0 && x < bgRm.w && y < bgRm.h) { bgRm.seeds.push([x, y]); bgRun(); }
+};
+$('#bgReset').onclick = () => { bgRm.seeds = []; $('#bgEdge').checked = true; bgRun(); };
+$('#bgUse').onclick = () => {
+  const c = cur(), a = c && c.data[bgRm.key]; if (!a || !bgRm.out) return;
+  const cv = document.createElement('canvas'); cv.width = bgRm.w; cv.height = bgRm.h; cv.getContext('2d').putImageData(bgRm.out, 0, 0);
+  const alts = (a.alts || []).slice(); if (!alts.some(v => v.src === a.src)) alts.push(plainArt(a));
+  c.data[bgRm.key] = { ...plainArt(a), src: cv.toDataURL('image/png'), alts };
+  $('#dlgBg').close(); afterImageChange(); toast('Background removed. The old picture is kept under Versions.');
+};
 
 // ---------- card actions ----------
 function addCards(types) {
@@ -823,9 +992,28 @@ $('#btnGallery').onclick = () => window.open('https://unitysworkshop.com/card-ga
 $('#btnExportJson').onclick = async () => {
   if (!S.proj) return;
   await saveNow();
-  const blob = new Blob([JSON.stringify({ app: 'multiverse-card-studio', version: 1, project: S.proj })], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(packImages(S.proj))], { type: 'application/json' });
   download(blob, slug(S.proj.name) + '.mcs.json');
 };
+
+// A picture used more than once is written once, under "images", and the cards point to it.
+function packImages(proj) {
+  const count = new Map(), each = fn => {
+    for (const c of p.cards) for (const v of Object.values(c.data || {})) if (v && typeof v === 'object' && 'src' in v) { fn(v); for (const alt of v.alts || []) fn(alt); }
+    for (const ic of p.icons || []) fn(ic);
+  };
+  const p = cloneVal(proj);
+  each(a => { if (a.src && /^data:/.test(a.src)) count.set(a.src, (count.get(a.src) || 0) + 1); });
+  const images = {}, ids = new Map(); let n = 0;
+  each(a => { if (count.get(a.src) > 1) { if (!ids.has(a.src)) { ids.set(a.src, 'i' + (++n)); images['i' + n] = a.src; } a.src = 'mcsimg:' + ids.get(a.src); } });
+  return n ? { app: 'multiverse-card-studio', version: 1, images, project: p } : { app: 'multiverse-card-studio', version: 1, project: p };
+}
+function unpackImages(p, images) {
+  if (!images) return;
+  const fix = a => { if (a && typeof a.src === 'string' && a.src.startsWith('mcsimg:')) a.src = images[a.src.slice(7)] || ''; };
+  for (const c of p.cards || []) for (const v of Object.values(c.data || {})) if (v && typeof v === 'object' && 'src' in v) { fix(v); for (const alt of v.alts || []) fix(alt); }
+  for (const ic of p.icons || []) fix(ic);
+}
 
 // ---------- import ----------
 $('#btnImport').onclick = () => { $('#fileImport').value = ''; $('#fileImport').click(); };
@@ -838,6 +1026,7 @@ $('#fileImport').addEventListener('change', async e => {
     const j = JSON.parse(text.replace(/,\s*([\]}])/g, '$1'));
     if (j.app === 'multiverse-card-studio' && j.project) {
       const p = j.project;
+      unpackImages(p, j.images);
       p.id = uid(); p.name = p.name + (S.projects.some(q => q.name === p.name) ? ' (imported)' : '');
       p.cards = p.cards.filter(c => TEMPLATES[c.type]).map(c => ({ ...c, id: uid() }));
       S.projects.push(p); await DB.put(p); openProject(p.id); toast('Project imported');

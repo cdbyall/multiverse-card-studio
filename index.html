@@ -41,6 +41,7 @@
 <main class="layout">
   <aside class="cards">
     <button id="btnNewCard" class="accent wide">+ New card</button>
+    <button id="btnBulkArt" class="wide" title="Pick many pictures; each goes to the card whose title matches its file name">Add art to many cards…</button>
     <div id="deckSum" class="deckSum"></div>
     <div id="cardList" class="cardList"></div>
   </aside>
@@ -131,6 +132,18 @@
   <p class="muted">Ready-made: <span id="icBuilt"></span></p>
 </dialog>
 
+<dialog id="dlgPickArt" class="dlg">
+  <div class="dlgHead"><b>Pictures in this project</b><button class="ghost" data-close>✕</button></div>
+  <div id="paList" class="paList"></div>
+</dialog>
+
+<dialog id="dlgBg" class="dlg">
+  <div class="dlgHead"><b>Remove background</b><button class="ghost" data-close>✕</button></div>
+  <p>The color around the edge is taken out. Click any spot still showing (a gap under an arm, say) to take that out too. Checkered = see-through.</p>
+  <div class="bgWrap"><canvas id="bgCanvas"></canvas></div>
+  <div class="row"><label class="grow">Strength <input type="range" id="bgTol" min="2" max="80" value="18"></label><label><input type="checkbox" id="bgEdge" checked> Edge color</label><button id="bgReset">Start over</button><button id="bgUse" class="accent">Use it</button></div>
+</dialog>
+
 <dialog id="dlgHelp" class="dlg">
   <div class="dlgHead"><b>How to write game text</b><button class="ghost" data-close>✕</button></div>
   <div class="help">
@@ -151,6 +164,7 @@
     <p><b>First Appearance cards</b> show the hero's debut comic in a graded case. Build the cover right here (masthead, issue, price, blurb, speech bubble, era, age and wear) or upload a finished cover. Use “First Appearance (front + back)” to make both sides at once; the back is the “Notable Defeat” cover with the incapacitated options.</p>
     <p><b>Events</b>: “Event (front + back)” makes the event card and its Collection back (featured cover, issue list, two rewards). “Critical Event (front) + Villain character” makes the critical event front and the replacement villain card on its back. In Tabletop Simulator the landscape back is turned to fit the card.</p>
     <p><b>Copies</b>: set “Copies in the deck” (under Print and decks) on any deck card. The list shows ×2, ×3, and the top of the list counts each deck (a hero deck is 40 cards). Print, PDF and Tabletop Simulator all use it.</p>
+    <p><b>Adding art</b>: drop a picture on the card, paste one (or an image link) with Ctrl+V, or drag a picture straight from another browser tab. <b>Add art to many cards…</b> (or dropping several pictures on the card list) puts each picture on the card whose title matches its file name; end a file name with <code>-fg</code> for the cut-out spot or <code>-bg</code> for the background. <b>Remove background…</b> turns a picture on a plain background into a cut-out. <b>From project…</b> reuses a picture another card already has; project files store it once.</p>
     <p><b>Two heroes in one project?</b> Give each deck card and deck back a <b>Deck</b> name (in Print and decks). Cards with the same name count together, export to Tabletop Simulator as their own deck with the back of the same name, and fill a divider that has that name.</p>
     <p><b>Dividers</b> are the square deck dividers from the Definitive Edition box: the front shows the deck name and art, the back lists the cards. On the back press <b>Fill from this project</b> to list your deck cards with their copies.</p>
     <p><b>Enhanced Edition</b> makes cards in the original look (yellow, blue and green title bars, all-caps lettering, speech-balloon quotes), including villain instructions cards and the oversized team villains. <b>OblivAeon</b> has the booklet page, Scions, Missions (objective side with its reward on the back), Shields, Battle Zones, Inevitable Destruction, the Scion Reserve, reminder cards, and the OblivAeon and Aeon Men decks with their backs.</p>
@@ -172,6 +186,7 @@
 
 <div id="printArea"></div>
 <input type="file" id="fileImg" accept="image/*" hidden>
+<input type="file" id="fileBulk" accept="image/*" multiple hidden>
 <input type="file" id="fileImport" accept=".json,.csv,.tsv,.txt,application/json,text/csv" hidden>
 
 <script src="text.js"></script>
