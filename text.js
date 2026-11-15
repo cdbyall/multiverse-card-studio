@@ -18,6 +18,8 @@ const TF = {
 
 const PHASE_RE = /^\s*\[?\s*(start|play|end|draw|power)\s+phase\s*\]?\s*:?\s*(.*)$/i;
 const BULLET_RE = /^\s*(?:>|-|•|\*)\s+/;
+// Ennead god words at the start of a line: SUN:, HAND:, ANKH: get their symbol, like the printed cards.
+const GOD_RE = /^\s*(sun|hand|ankh)\s*:\s*/i;
 const LABEL_RE = /^\s*(power|reaction|setup|advanced|challenge|setback|ongoing)\s*:\s*/i;
 
 function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -68,7 +70,13 @@ function parseGameText(src, opts = {}) {
     if (BULLET_RE.test(raw)) { bullet = true; raw = raw.replace(BULLET_RE, ''); }
     else if (opts.bullets) bullet = true;
     const runs = [];
-    const lm = raw.match(LABEL_RE);
+    const gm = raw.match(GOD_RE);
+    if (gm) {
+      const g = gm[1].toLowerCase();
+      runs.push({ icon: 'custom', name: g === 'sun' && !TEXT_ICONS.has('sun') ? 'aten' : g }, { s: ' ' }, { s: g.toUpperCase(), b: 1, i: 1 }, { s: ': ' });
+      raw = raw.slice(gm[0].length);
+    }
+    const lm = gm ? null : raw.match(LABEL_RE);
     if (lm) {
       runs.push({ s: lm[1].toUpperCase() + ': ', lab: 1 });
       raw = raw.slice(lm[0].length);
@@ -215,6 +223,28 @@ const DRAWN_ICONS = {
   sun(ctx, cx, cy, r) { ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r * 0.62, cy + Math.sin(a) * r * 0.62); ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.stroke(); } },
   moon(ctx, cx, cy, r) { ctx.beginPath(); ctx.arc(cx, cy, r * 0.85, 0, Math.PI * 2); ctx.arc(cx + r * 0.38, cy - r * 0.22, r * 0.7, 0, Math.PI * 2, true); ctx.fill('evenodd'); },
   star(ctx, cx, cy, r) { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.42 : r; ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); },
+  // raised hand, seen side-on like the printed Ennead cards (Geb, Osiris, Shu)
+  hand(ctx, cx, cy, r) {
+    ctx.save(); ctx.translate(cx, cy); ctx.transform(1, 0, -0.18, 1, 0, 0);
+    ctx.beginPath();
+    ctx.moveTo(-0.22 * r, 1.0 * r);
+    ctx.lineTo(-0.3 * r, 0.25 * r);
+    ctx.quadraticCurveTo(-0.62 * r, -0.05 * r, -0.5 * r, -0.3 * r);   // thumb
+    ctx.quadraticCurveTo(-0.32 * r, -0.25 * r, -0.24 * r, -0.1 * r);
+    ctx.lineTo(-0.2 * r, -0.85 * r);
+    ctx.quadraticCurveTo(-0.08 * r, -1.08 * r, 0.12 * r, -0.95 * r);  // fingertips
+    ctx.quadraticCurveTo(0.3 * r, -0.2 * r, 0.26 * r, 1.0 * r);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  },
+  // Aten sun disk with thin rays straight down (Atum, Nuit, Tefnut)
+  aten(ctx, cx, cy, r) {
+    ctx.beginPath(); ctx.arc(cx, cy - r * 0.42, r * 0.48, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = Math.max(1, r * 0.09); ctx.lineCap = 'butt';
+    for (let i = 0; i < 5; i++) {
+      const t = (i - 2) / 2; // -1..1
+      ctx.beginPath(); ctx.moveTo(cx + t * r * 0.36, cy - r * 0.1); ctx.lineTo(cx + t * r * 0.62, cy + r); ctx.stroke();
+    }
+  },
   ankh(ctx, cx, cy, r) { ctx.beginPath(); ctx.ellipse(cx, cy - r * 0.45, r * 0.32, r * 0.42, 0, 0, Math.PI * 2); ctx.stroke(); ctx.fillRect(cx - r * 0.75, cy - r * 0.02, r * 1.5, r * 0.2); ctx.fillRect(cx - r * 0.1, cy, r * 0.2, r); },
   eye(ctx, cx, cy, r) { ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.quadraticCurveTo(cx, cy - r * 0.9, cx + r, cy); ctx.quadraticCurveTo(cx, cy + r * 0.9, cx - r, cy); ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy, r * 0.3, 0, Math.PI * 2); ctx.fill(); },
   skull(ctx, cx, cy, r) { ctx.beginPath(); ctx.arc(cx, cy - r * 0.15, r * 0.75, Math.PI, 0); ctx.lineTo(cx + r * 0.5, cy + r * 0.75); ctx.lineTo(cx - r * 0.5, cy + r * 0.75); ctx.closePath(); ctx.fill(); ctx.save(); ctx.globalCompositeOperation = 'destination-out'; ctx.beginPath(); ctx.arc(cx - r * 0.3, cy, r * 0.2, 0, Math.PI * 2); ctx.arc(cx + r * 0.3, cy, r * 0.2, 0, Math.PI * 2); ctx.fill(); ctx.restore(); },

@@ -1,6 +1,6 @@
 // sw.js: offline support. App files: network first (so updates show), cache as backup.
 // Fonts: cache first.
-const CACHE = 'mcs-v6';
+const CACHE = 'mcs-v7';
 const SHELL = ['./', 'index.html', 'styles.css', 'text.js', 'render.js', 'editions.js', 'zip.js', 'pdf.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {
