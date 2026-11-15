@@ -186,7 +186,7 @@ function buildList() {
   updateDeckSum();
   buildProjSel();
 }
-function typeLine(c) { const n = cardCopies(c); return TEMPLATES[c.type].name + (n !== 1 && !ONE_COPY_TYPES.has(c.type) ? '  ×' + n : ''); }
+function typeLine(c) { const n = cardCopies(c); return TEMPLATES[c.type].name + (n !== 1 && !ONE_COPY_TYPES.has(c.type) ? '  ×' + n : '') + (deckOf(c) ? '  · ' + deckOf(c) : ''); }
 function refreshListItem(c) {
   const it = document.querySelector(`.ci[data-id="${c.id}"] .t b`);
   if (it) it.textContent = cardLabel(c);
@@ -194,6 +194,19 @@ function refreshListItem(c) {
   if (sm) sm.textContent = typeLine(c);
   updateDeckSum();
 }
+// ---------- named decks ----------
+// A project can hold several decks of one kind (two heroes, say). Each deck card and deck back
+// has a "Deck" box; cards with the same name count, export and list together. Empty = the
+// project's one unnamed deck, which is how every project worked before.
+const NAMED_DECK_TYPES = new Set(['heroDeck', 'villainDeck', 'envDeck', 'principle', 'heroBack', 'villainBack', 'envBack', 'principleBack',
+  'eeHeroDeck', 'eeVillainDeck', 'eeEnvDeck', 'eeHeroBack', 'eeVillainBack', 'eeEnvBack', 'oblDeck', 'oblAeon', 'oblDeckBack', 'oblAeonBack', 'dividerBack']);
+for (const t of NAMED_DECK_TYPES) {
+  const fs = TEMPLATES[t] && TEMPLATES[t].fields;
+  if (fs && !fs.some(f => f.key === 'deck')) fs.push({ type: 'deck', key: 'deck', label: 'Deck', def: '', help: t === 'dividerBack' ? 'Which deck "Fill from this project" lists. Empty = all cards of the deck type.' : 'Only needed when a project has more than one deck of this kind (two heroes, say). Cards with the same deck name count and export together.' });
+}
+const deckOf = c => String((c.data || {}).deck || '').trim();
+function projectDeckNames() { return [...new Set((S.proj ? S.proj.cards : []).map(deckOf).filter(Boolean))].sort((a, b) => a.localeCompare(b)); }
+
 // Card counts per deck (copies included). Hero decks are 40 cards.
 const DECK_SIZES = { eeHeroDeck: ['Hero deck (Enhanced)', 40], oblDeck: ['OblivAeon deck', 0], oblAeon: ['Aeon Men', 0], heroDeck: ['Hero deck', 40], villainDeck: ['Villain deck', 0], envDeck: ['Environment deck', 0], eventFront: ['Events', 0], criticalFront: ['Critical events', 0], principle: ['Principles', 0] };
 function updateDeckSum() {
@@ -201,9 +214,11 @@ function updateDeckSum() {
   box.innerHTML = '';
   if (!S.proj) return;
   const n = {};
-  for (const c of S.proj.cards) if (DECK_SIZES[c.type]) n[c.type] = (n[c.type] || 0) + cardCopies(c);
-  for (const [t, v] of Object.entries(n)) {
-    const [label, want] = DECK_SIZES[t];
+  for (const c of S.proj.cards) if (DECK_SIZES[c.type]) { const k = c.type + '\u0001' + deckOf(c); n[k] = (n[k] || 0) + cardCopies(c); }
+  for (const [k, v] of Object.entries(n)) {
+    const [t, dk] = k.split('\u0001');
+    const [label0, want] = DECK_SIZES[t];
+    const label = dk ? dk + ' (' + label0.toLowerCase() + ')' : label0;
     box.append(el('span', { class: want && v !== want ? 'off' : want ? 'ok' : '', title: want ? `A ${label.toLowerCase()} has ${want} cards` : '' }, `${label}: ${v}${want ? ' / ' + want : ''}`));
   }
 }
@@ -241,7 +256,7 @@ function fieldRow(c, f) {
   const set = (v, opts = {}) => {
     d[f.key] = v;
     requestRender(); scheduleSave(); pushHistory(opts.now);
-    if (['title', 'name', 'caption', 'copies'].includes(f.key)) refreshListItem(c);
+    if (['title', 'name', 'caption', 'copies', 'deck'].includes(f.key)) refreshListItem(c);
     if (f.rebuild) buildForm();
   };
   const row = el('div', { class: 'fr' + (f.short ? ' short' : '') });
@@ -285,6 +300,19 @@ function fieldRow(c, f) {
     row.append(label, sel);
   } else if (f.type === 'image') {
     row.append(label, imageField(c, f));
+  } else if (f.type === 'deck') {
+    const cur0 = String(d[f.key] || '');
+    const names = projectDeckNames(); if (cur0 && !names.includes(cur0)) names.push(cur0);
+    const sel = el('select', { id }, el('option', { value: '' }, '(none: the project\'s deck)'), ...names.map(n => el('option', { value: n, selected: n === cur0 }, n)), el('option', { value: '\u0002new' }, 'New deck…'));
+    sel.onchange = e => {
+      let v = e.target.value;
+      if (v === '\u0002new') {
+        v = (prompt('Name for the new deck (for example the hero\'s name):', c.data.name || '') || '').trim();
+        if (!v) { sel.value = cur0; return; }
+      }
+      set(v, { now: true }); buildForm();
+    };
+    row.append(label, sel);
   } else if (f.type === 'button') {
     row.append(el('button', { type: 'button', onclick: () => FORM_ACTIONS[f.action] && FORM_ACTIONS[f.action](c) }, f.label));
   }
@@ -296,9 +324,10 @@ function fieldRow(c, f) {
 const FORM_ACTIONS = {
   fillList(c) {
     const kind = c.data.kind || 'Hero';
-    const type = { Hero: 'heroDeck', Villain: 'villainDeck', Environment: 'envDeck' }[kind];
-    const cards = S.proj.cards.filter(x => x.type === type && cardCopies(x) > 0);
-    if (!cards.length) return toast(`This project has no ${kind.toLowerCase()} deck cards yet.`);
+    const types = { Hero: ['heroDeck', 'eeHeroDeck'], Villain: ['villainDeck', 'eeVillainDeck', 'oblDeck'], Environment: ['envDeck', 'eeEnvDeck'] }[kind] || ['heroDeck'];
+    const dk = deckOf(c);
+    const cards = S.proj.cards.filter(x => types.includes(x.type) && cardCopies(x) > 0 && (!dk || deckOf(x) === dk));
+    if (!cards.length) return toast(dk ? `No ${kind.toLowerCase()} deck cards in the deck "${dk}" yet.` : `This project has no ${kind.toLowerCase()} deck cards yet.`);
     const code = String(c.data.name || 'X').normalize('NFD').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'X';
     const merged = new Map();
     for (const x of cards) { const k = String(x.data.title || '').trim(); const m = merged.get(k); if (m) m.q += cardCopies(x); else merged.set(k, { q: cardCopies(x), k: x.data.keywords || '' }); }
@@ -704,6 +733,7 @@ function addCards(types) {
   if (made.length === 2) { const pid = uid(); made[0].pair = pid; made[1].pair = pid; }
   let pos = at < 0 ? S.proj.cards.length : at + 1;
   const sel = S.proj.cards[at];
+  if (sel && deckOf(sel)) for (const m of made) if (NAMED_DECK_TYPES.has(m.type) && m.type !== 'dividerBack') m.data.deck = deckOf(sel);
   if (sel && sel.pair) { const j = S.proj.cards.findIndex((c, k) => k !== at && c.pair === sel.pair); if (j >= 0) pos = Math.max(at, j) + 1; }
   S.proj.cards.splice(pos, 0, ...made);
   scheduleSave(); buildList(); selectCard(made[0].id);
@@ -1014,13 +1044,18 @@ function ttsGroups(cards) {
       continue;
     }
     if (!cardCopies(c)) continue;
-    if (!decks.has(c.type)) decks.set(c.type, []);
-    decks.get(c.type).push(c);
+    const dkey = c.type + '\u0001' + deckOf(c);
+    if (!decks.has(dkey)) decks.set(dkey, []);
+    decks.get(dkey).push(c);
   }
   const groups = [...chars.values()];
-  for (const [t, list] of decks) {
+  for (const [k, list] of decks) {
+    const [t, dk] = k.split('\u0001');
     const bt = TTS_BACK_FOR[t];
-    groups.push({ name: TTS_DECK_NAMES[t] || TEMPLATES[t].name.replace(/ \(.*\)$/, ''), faces: list, back: bt ? cards.find(c => c.type === bt) || null : null, unique: false, orient: TEMPLATES[t].orient });
+    const backs = bt ? cards.filter(c => c.type === bt) : [];
+    const back = backs.find(c => deckOf(c) === dk) || backs.find(c => !deckOf(c)) || backs[0] || null;
+    const base = TTS_DECK_NAMES[t] || TEMPLATES[t].name.replace(/ \(.*\)$/, '');
+    groups.push({ name: dk ? dk + ' - ' + base : base, faces: list, back, unique: false, orient: TEMPLATES[t].orient });
   }
   // TTS holds at most 69 cards per sheet (the 70th slot is the hidden face)
   const out = [];

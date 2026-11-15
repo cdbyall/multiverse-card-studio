@@ -1206,11 +1206,19 @@ const TEMPLATES = {
       drawArt(R, 'bg', { x: 0, y: 0, w: W, h: H }, { phColor: d.color, phLabel: 'Background art' });
       drawArt(R, 'fg', { x: 0, y: 0, w: W * 0.66, h: H }, { fit: 'contain-bottom', placeholder: false });
       const bx = d.border ? 22 : 0;
-      const sx = d.setup ? 52 + bx : bx;
+      // Setup strip: one line as on the printed cards; long setup text widens the strip a line at a time
+      // (up to three) instead of shrinking to an unreadable size or spilling.
+      let se = 0;
       if (d.setup) {
-        ctx.save(); ctx.fillStyle = 'rgba(10,10,12,.92)'; ctx.fillRect(0, 0, 52 + bx, H);
-        ctx.translate(34 + bx, H - 20 - bx); ctx.rotate(-Math.PI / 2);
-        drawGameTextBox(ctx, d.setup, { x: 0, y: -24, w: H - 40 - bx * 2, h: 32 }, { base: 20, min: 10, color: '#fff', terms: terms(d) });
+        const sw = H - 40 - bx * 2, sb = parseGameText(d.setup, { terms: terms(d) });
+        for (se = 0; se < 48; se += 24) if (fitText(ctx, sb, sw, 32 + se, 20, 14, {}).height <= 32 + se) break;
+      }
+      const sx = d.setup ? 52 + se + bx : bx;
+      if (d.setup) {
+        ctx.save(); ctx.fillStyle = 'rgba(10,10,12,.92)'; ctx.fillRect(0, 0, 52 + se + bx, H);
+        ctx.translate(34 + se + bx, H - 20 - bx); ctx.rotate(-Math.PI / 2);
+        const sr = { x: 0, y: -24 - se, w: H - 40 - bx * 2, h: 32 + se };
+        noteFit(R, drawGameTextBox(ctx, d.setup, sr, { base: 20, min: 10, color: '#fff', terms: terms(d) }), sr);
         ctx.restore();
       }
       const dw = W - 1050;
@@ -1223,7 +1231,18 @@ const TEMPLATES = {
       part(R, 'Keywords', { x: 760 + dx, y: 232, w: 250, h: 40 }, () => comicLabel(ctx, d.keywords, 1010 + dx, 262, 32, { align: 'right' }));
       const bw = d.boxWidth || 360;
       const adv = String(d.advanced || '').trim();
-      const top = 282, bottom = adv ? 668 : 722;
+      // Advanced box: 52 tall as printed; long text makes it taller (upward) and the text box shorter.
+      let ah = 52;
+      const advText = adv ? (d.advPhase ? '**' + d.advPhase.toUpperCase() + ' PHASE:** ' : '') + adv.replace(/\n/g, ' ') : '';
+      if (adv) {
+        ctx.save(); ctx.font = `${52 * 0.74}px ${TF.title}`;
+        const tw0 = ctx.measureText('ADVANCED…').width + 52 * 0.6; ctx.restore();
+        const full = W - 26 - (sx + 18), aw = Math.max(120, Math.min(full, d.advWidth || full) - tw0 - 8) - 24;
+        const ab0 = parseGameText(advText, { terms: terms(d) });
+        for (ah = 52; ah < 156; ah += 26) if (fitText(ctx, ab0, aw, ah - 12, 20, 14, {}).height <= ah - 12) break;
+      }
+      const ay = 736 - ah;
+      const top = 282, bottom = adv ? ay - 16 : 722;
       const tb = { x: W - 26 - bw, y: top, w: bw, h: bottom - top };
       if (d.boxAlign && d.boxAlign !== 'fill') {
         const blocks = parseGameText(d.gameText, { terms: terms(d) });
@@ -1238,14 +1257,13 @@ const TEMPLATES = {
         const hasN = !(d.noNemesis && !(d.nemesis && d.nemesis.src));
         if (hasN) nemesis(R, { x: tb.x - 96, y: tb.y + tb.h - 100, w: 84, h: 96 }, d.name, d.color);
       });
-      if (adv) part(R, 'Advanced', { x: sx + 18, y: 684, w: W - 44 - sx, h: 52 }, () => {
-        const ay = 684, ah = 52;
-        const tw = tag(ctx, 'Advanced…', sx + 18, ay, ah, { fill: '#ffb000' });
+      if (adv) part(R, 'Advanced', { x: sx + 18, y: ay, w: W - 44 - sx, h: ah }, () => {
+        const tw = tag(ctx, 'Advanced…', sx + 18, ay, 52, { fill: '#ffb000' });
         const full = W - 26 - (sx + 18);
         const ab = { x: sx + 18 + tw + 8, y: ay, w: Math.max(120, Math.min(full, d.advWidth || full) - tw - 8), h: ah };
         box(ctx, ab, { lw: 4 });
-        const at = (d.advPhase ? '**' + d.advPhase.toUpperCase() + ' PHASE:** ' : '') + adv.replace(/\n/g, ' ');
-        drawGameTextBox(ctx, at, inset(ab, 12, 6), { base: 20, min: 10, terms: terms(d), valign: 'center' });
+        const ar = inset(ab, 12, 6);
+        noteFit(R, drawGameTextBox(ctx, advText, ar, { base: 20, min: 10, terms: terms(d), valign: 'center' }), ar);
         return { x: sx + 18, y: ay, w: ab.x + ab.w - sx - 18, h: ah };
       });
     },
