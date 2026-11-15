@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiverse Card Studio</title>
+<meta name="description" content="Unofficial fan card maker for Sentinels of the Multiverse: Definitive Edition.">
+<meta name="theme-color" content="#14161c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Boogaloo&family=Comic+Neue:ital,wght@0,700;1,700&family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Work+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.cdnfonts.com/css/unmasked-bb" rel="stylesheet">
+<link href="https://fonts.cdnfonts.com/css/avengeance-mightiest-avenger" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="burst">MCS</span><div><b>Multiverse Card Studio</b><small>Unofficial fan card maker</small></div></div>
+  <div class="proj">
+    <select id="projSel" title="Project"></select>
+    <button id="projNew" title="New project">New</button>
+    <button id="projRename" title="Rename project">Rename</button>
+    <button id="projDel" title="Delete project" class="ghost">Delete</button>
+  </div>
+  <div class="actions">
+    <button id="btnImport">Import</button>
+    <button id="btnExportJson">Save project file</button>
+    <button id="btnZip">All PNGs (.zip)</button>
+    <button id="btnPrint">Print sheets</button>
+    <button id="btnTTS" class="accent">Tabletop Simulator</button>
+    <button id="btnGallery" class="ghost" title="Opens the official card gallery on Unity's Workshop">Official cards ↗</button>
+    <button id="btnHelp" class="ghost">Help</button>
+    <button id="btnInstall" class="accent" hidden>Install app</button>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="cards">
+    <button id="btnNewCard" class="accent wide">+ New card</button>
+    <div id="cardList" class="cardList"></div>
+  </aside>
+
+  <section class="stage">
+    <div class="toolbar">
+      <button id="tbUndo" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="tbRedo" title="Redo (Ctrl+Y)">Redo</button>
+      <span class="sep"></span>
+      <button id="tbDup">Duplicate</button>
+      <button id="tbUp" title="Move up">▲</button>
+      <button id="tbDown" title="Move down">▼</button>
+      <button id="tbDel" class="ghost">Delete</button>
+      <button id="tbCopy" title="Copy this card as JSON">Copy JSON</button>
+      <span class="sep"></span>
+      <label class="chk"><input type="checkbox" id="tbBleed"> Bleed</label>
+      <label class="chk"><input type="checkbox" id="tbGuides" checked> Guides</label>
+      <span class="grow"></span>
+      <button id="tbPng" class="accent">Download PNG</button>
+    </div>
+    <div class="canvasWrap" id="canvasWrap">
+      <canvas id="preview"></canvas>
+      <div class="empty" id="emptyMsg" hidden>No cards yet. Press <b>+ New card</b>.</div>
+    </div>
+    <div class="hint">Drag art to move it, scroll to zoom, double-click to replace. Drop or paste an image onto any art area.</div>
+  </section>
+
+  <aside class="editor">
+    <div class="edHead"><span id="edType"></span></div>
+    <form id="form" autocomplete="off" onsubmit="return false"></form>
+  </aside>
+</main>
+
+<footer class="foot">Unofficial fan-made tool. Not affiliated with or endorsed by Greater Than Games. Sentinels of the Multiverse is a trademark of its owners. Frames here are original drawings.</footer>
+
+<dialog id="dlgNew" class="dlg">
+  <div class="dlgHead"><b>New card</b><button class="ghost" data-close>✕</button></div>
+  <div id="pickGrid" class="pick"></div>
+</dialog>
+
+<dialog id="dlgImportType" class="dlg small">
+  <div class="dlgHead"><b>Import spreadsheet</b><button class="ghost" data-close>✕</button></div>
+  <p>Each row becomes a card. Column headers are matched to field names (Title, Keywords, HP, Game Text, Quote…).</p>
+  <label>Card type <select id="impType"></select></label>
+  <div class="row"><button id="impGo" class="accent">Import</button></div>
+</dialog>
+
+<dialog id="dlgPrint" class="dlg small">
+  <div class="dlgHead"><b>Print sheets</b><button class="ghost" data-close>✕</button></div>
+  <label>Paper <select id="prPaper"><option value="letter">US Letter</option><option value="a4">A4</option></select></label>
+  <label>Cards <select id="prWhich"><option value="all">All cards in project</option><option value="cur">Only this card</option></select></label>
+  <label>Copies of each <input id="prCopies" type="number" min="1" max="20" value="1"></label>
+  <label class="chk"><input type="checkbox" id="prLines" checked> Thin cut lines</label>
+  <p class="muted">Cards print at real size (2.5 × 3.5 in). Use “Save as PDF” in the print window for a PDF. Set scale to 100%.</p>
+  <div class="row"><button id="prGo" class="accent">Print…</button></div>
+</dialog>
+
+<dialog id="dlgTTS" class="dlg small">
+  <div class="dlgHead"><b>Tabletop Simulator</b><button class="ghost" data-close>✕</button></div>
+  <p>Makes deck sheets and a Saved Object that spawns a bag with all your decks.</p>
+  <p class="muted" id="ttsSummary"></p>
+  <label>Your Tabletop Simulator <b>Saved Objects</b> folder
+    <input type="text" id="ttsPath" spellcheck="false"></label>
+  <p class="muted">Usually Documents\My Games\Tabletop Simulator\Saves\Saved Objects. In the game, find it under Objects &gt; Saved Objects. To share with friends, use Modding &gt; Cloud Manager &gt; Upload All Loaded Files after you spawn it (steps are in the README it makes).</p>
+  <div class="row"><button id="ttsZip">Download .zip</button><button id="ttsSaveFolder" class="accent">Save into that folder…</button></div>
+</dialog>
+
+<dialog id="dlgHelp" class="dlg">
+  <div class="dlgHead"><b>How to write game text</b><button class="ghost" data-close>✕</button></div>
+  <div class="help">
+    <p>Type plain text. The studio formats it for you:</p>
+    <table>
+      <tr><td><code>POWER: Draw a card.</code></td><td>Bold power label</td></tr>
+      <tr><td><code>REACTION: …</code> <code>Setup: …</code></td><td>Bold labels</td></tr>
+      <tr><td><code>Start Phase: …</code> or <code>[End Phase]</code> on its own line</td><td>Red phase label</td></tr>
+      <tr><td><code>&gt; text</code> or <code>- text</code></td><td>Arrow bullet</td></tr>
+      <tr><td><code>(H)</code></td><td>H (number of heroes) icon</td></tr>
+      <tr><td><code>[flip]</code> <code>(F)</code></td><td>Flip icon</td></tr>
+      <tr><td><code>**words**</code> / <code>_words_</code></td><td>Bold / italic</td></tr>
+      <tr><td>“Extra bolded terms” field</td><td>Bolds those words everywhere</td></tr>
+    </table>
+    <p>Text shrinks automatically to fit its box; the Text size slider sets the starting size.</p>
+    <p><b>First Appearance cards</b> show the hero's debut comic in a graded case. Build the cover right here (masthead, issue, price, blurb, speech bubble, era, age and wear) or upload a finished cover. Use “First Appearance (front + back)” to make both sides at once; the back is the “Notable Defeat” cover with the incapacitated options.</p>
+    <p><b>Art</b> is framed for you when you add it (it finds the subject and fits it to the spot). Use <b>Crop…</b> for exact control, or drag and scroll on the card.</p>
+    <p><b>Tabletop Simulator</b> makes deck sheets and a Saved Object. Put character fronts right before their backs in the card list (front, then back) so they pair up. Deck cards use the project's deck back of the same kind.</p>
+    <p>Everything saves automatically in this browser. Use <b>Save project file</b> to back up or share a project (art included), and <b>Import</b> to load it again. Import also reads Unity's Workshop JSON and CSV/TSV spreadsheets.</p>
+  </div>
+</dialog>
+
+<dialog id="dlgCrop" class="dlg">
+  <div class="dlgHead"><b>Crop</b><button class="ghost" data-close>✕</button></div>
+  <p class="muted">The bright box is what shows on the card. Drag it to move; scroll or use the slider to zoom.</p>
+  <div class="cropWrap"><canvas id="cropCanvas"></canvas></div>
+  <div class="row"><label class="grow rangeRow">Zoom <input type="range" id="cropZoom" min="0.1" max="6" step="0.01"></label>
+    <button id="cropAuto">Auto frame</button><button id="cropDone" class="accent">Done</button></div>
+</dialog>
+
+<div id="printArea"></div>
+<input type="file" id="fileImg" accept="image/*" hidden>
+<input type="file" id="fileImport" accept=".json,.csv,.tsv,.txt,application/json,text/csv" hidden>
+
+<script src="text.js"></script>
+<script src="render.js"></script>
+<script src="zip.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
