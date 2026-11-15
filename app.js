@@ -657,7 +657,8 @@ function addCards(types) {
   const at = S.proj.cards.findIndex(c => c.id === S.cardId);
   const made = types.map(t => newCard(t));
   if (made.length === 2 && made[0].type === made[1].type && /^(villainChar|teamVillain)$/.test(made[0].type)) {
-    made[1].data.title = 'Flipped Side'; made[1].data.setup = ''; made[1].data.hp = '';
+    made[1].data.title = made[0].type === 'teamVillain' ? 'Incapacitated' : 'Flipped Side'; made[1].data.setup = ''; made[1].data.hp = '';
+    if (made[0].type === 'teamVillain') made[1].data.keywords = '';
   }
   S.proj.cards.splice(at < 0 ? S.proj.cards.length : at + 1, 0, ...made);
   scheduleSave(); buildList(); selectCard(made[0].id);
@@ -894,7 +895,7 @@ async function buildPicker() {
       row.append(btn);
       types.forEach((t, i) => {
         const demo = newCard(t);
-        if (types.length === 2 && types[0] === types[1] && i === 1) demo.data.title = 'Flipped Side';
+        if (types.length === 2 && types[0] === types[1] && i === 1) { demo.data.title = t === 'teamVillain' ? 'Incapacitated' : 'Flipped Side'; demo.data.hp = ''; if (t === 'teamVillain') demo.data.keywords = ''; }
         renderCard(demo, cvs[i], { scale: 0.17, exporting: true });
       });
     }
@@ -910,8 +911,8 @@ $('#btnHelp').onclick = () => $('#dlgHelp').showModal();
 // deck cards share the project's deck back of the same kind.
 const TTS_PAIR = { heroChar: 'heroCharBack', faFront: 'faBack', villainChar: 'villainChar', teamVillain: 'teamVillain', eventFront: 'eventBack', criticalFront: 'villainChar' };
 const TTS_CHAR_NAMES = { Hero: 'Hero character cards', Villain: 'Villain character cards', Events: 'Event cards' };
-const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack' };
-const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack']);
+const TTS_BACK_FOR = { heroDeck: 'heroBack', villainDeck: 'villainBack', envDeck: 'envBack', principle: 'principleBack' };
+const TTS_BACK_TYPES = new Set(['heroBack', 'villainBack', 'envBack', 'principleBack']);
 
 function ttsGroups(cards) {
   const chars = new Map(), decks = new Map();
